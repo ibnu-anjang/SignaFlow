@@ -1,135 +1,83 @@
-# 07. Runbook Operasional, Deployment & Pemeliharaan
+# 07. Panduan Menjalankan & Operasional (Runbook)
 
-Dokumen ini adalah panduan operasional standar (SOP) untuk menjalankan, mengelola, mem-backup, dan menangani insiden pada platform **SignaFlow** di lingkungan produksi maupun saat demonstrasi lapangan.
+Dokumen ini adalah **buku panduan praktis** cara menyalakan aplikasi, membuka dari HP, mengatur TV Kiosk, dan mengatasi masalah kalau ada yang error saat dicoba.
 
 ---
 
-## 1. Konfigurasi Variabel Lingkungan (`.env`)
+## 1. Menyiapkan File Konfigurasi (`.env`)
 
-Sebelum menjalankan *stack* Docker, salin `.env.example` menjadi `.env` dan sesuaikan nilainya:
-
-```ini
-# Database PostgreSQL
-POSTGRES_USER=signaflow
-POSTGRES_PASSWORD=ubah_password_produksi_kuat_123
-POSTGRES_DB=signaflow_db
-DATABASE_URL="postgresql://signaflow:ubah_password_produksi_kuat_123@db:5432/signaflow_db?schema=public"
-
-# Keamanan & Autentikasi
-JWT_SECRET="gunakan_string_acak_minimal_64_karakter_heksadesimal"
-ADMIN_SEED_EMAIL="admin@signaflow.local"
-ADMIN_SEED_PASSWORD="AdminSignaFlow2026!"
-
-# Penyimpanan Media & Zona Waktu Lokasi
-STORAGE_DRIVER="local"
-MEDIA_UPLOAD_DIR="/data/uploads"
-PUBLIC_MEDIA_BASE_URL="/media"
-VENUE_TIMEZONE="Asia/Jakarta"
-
-# Domain / Hostname untuk Caddy Reverse Proxy
-# Gunakan "localhost" atau IP LAN server (contoh: "192.168.1.100")
-CADDY_DOMAIN="localhost"
+Sebelum menyalakan sistem, buat file `.env` dengan menyalin file contoh:
+```bash
+cp .env.example .env
 ```
 
+Isi default di dalam `.env` sudah aman untuk dicoba di laptop. Kamu tidak perlu mengubah apa-apa kecuali ingin mengganti password database.
+
 ---
 
-## 2. SOP Deployment Produksi dengan Docker Compose
+## 2. Cara Menyalakan Sistem Menggunakan Docker
 
-### 2.1 Menyalakan Seluruh Layanan
+Pastikan aplikasi Docker Desktop (atau Docker Engine di Linux) sudah menyala di laptopmu, lalu buka terminal dan jalankan:
+
 ```bash
-# Build image untuk arsitektur linux/amd64 dan jalankan di latar belakang
+# Nyalakan semua container (Database, Next.js, dan Caddy HTTPS)
 docker compose up -d --build
+```
 
-# Periksa status kesehatan ketiga container (db, app, proxy)
+Tunggu beberapa menit saat Docker pertama kali men-download dan merakit aplikasi. Setelah selesai, cek statusnya:
+```bash
 docker compose ps
 ```
+Kalau ketiga container (`signaflow-db`, `signaflow-app`, `signaflow-proxy`) berstatus **Up / Healthy**, berarti sistem sudah berjalan normal!
 
-### 2.2 Memeriksa Log Layanan Secara Langsung
+### Cara Membuka di Browser Laptop:
+* **Halaman Admin CMS:** Buka `https://localhost/admin`
+* **Halaman Layar Kiosk:** Buka `https://localhost/player`
+
+### Akun Admin Default:
+* **Email:** `admin@signaflow.local`
+* **Password:** `AdminSignaFlow2026!`
+
+---
+
+## 3. Cara Membuka dari HP (Untuk Admin Keliling atau Demo Kiosk)
+
+Kamu bisa membuka dashboard Admin atau menjadikan layar HP-mu sebagai layar simulasi TV Kiosk:
+
+1. **Pastikan Laptop dan HP Terhubung ke Wi-Fi yang Sama** (atau Hotspot HP yang sama).
+2. **Cari Tahu Alamat IP Laptopmu:**
+   - Di Linux: buka terminal, ketik `hostname -I` (contoh: `192.168.1.50`).
+   - Di Windows: buka CMD, ketik `ipconfig`.
+3. **Buka Browser di HP:**
+   - Buka alamat: `https://192.168.1.50/admin` (ganti dengan IP laptopmu).
+   - Kalau muncul peringatan keamanan browser ("Your connection is not private"), klik **Advanced / Lanjutan** lalu pilih **Proceed / Tetap Lanjutkan**.
+4. **Trik Menjadikan HP Sebagai Layar TV Kiosk:**
+   - Buka `https://192.168.1.50/player` di browser Chrome/Safari HP.
+   - Klik menu titik tiga -> pilih **"Add to Home Screen" (Tambahkan ke Layar Utama)**.
+   - Buka ikon SignaFlow dari layar utama HP. Layar HP akan langsung berubah jadi Kiosk vertikal layar penuh tanpa address bar browser!
+
+---
+
+## 4. Cara Melihat Catatan Log Kalau Terjadi Error
+
+Kalau ada fitur yang tidak berjalan semestinya, kamu bisa melihat catatan log langsung dari Docker:
+
 ```bash
-# Melihat log aplikasi Next.js dan migrasi Prisma
+# Melihat log aplikasi Next.js (apakah ada error database atau API)
 docker compose logs -f app
 
-# Melihat log akses HTTPS dan streaming media pada Caddy
+# Melihat log Caddy (apakah ada masalah koneksi HTTPS atau streaming video)
 docker compose logs -f proxy
 ```
+Tekan `Ctrl + C` di terminal untuk berhenti melihat log.
 
 ---
 
-## 3. Pengaturan Sertifikat HTTPS Lokal untuk Kiosk & HP di Jaringan LAN
+## 5. Pertolongan Pertama Saat Terjadi Masalah (Troubleshooting)
 
-Karena fitur **Service Worker** dan **Cache Storage API** mewajibkan koneksi **HTTPS (`Secure Context`)**, Caddy secara otomatis membuat sertifikat TLS lokal ketika dijalankan di jaringan LAN (`tls internal`).
-
-Agar *browser* pada perangkat Kiosk atau HP di jaringan Wi-Fi yang sama mempercayai sertifikat HTTPS lokal tanpa peringatan keamanan:
-
-1. **Ambil Sertifikat Root CA dari Container Caddy:**
-   ```bash
-   docker cp signaflow-proxy:/data/caddy/pki/authorities/local/root.crt ./signaflow-root-ca.crt
-   ```
-2. **Pada Mini-PC Linux Kiosk (Ubuntu/Debian):**
-   ```bash
-   sudo cp ./signaflow-root-ca.crt /usr/local/share/ca-certificates/signaflow-root-ca.crt
-   sudo update-ca-certificates
-   ```
-3. **Pada HP Android (untuk Admin Mobile / Simulasi Kiosk):**
-   - Kirim file `signaflow-root-ca.crt` ke HP.
-   - Buka **Pengaturan (Settings)** -> **Keamanan & Privasi** -> **Enkripsi & Kredensial** -> **Instal Sertifikat** -> **Sertifikat CA**, lalu pilih file tersebut.
-
----
-
-## 4. Konfigurasi Auto-Boot pada Perangkat Fisik Linux Kiosk
-
-Untuk memastikan Mini-PC langsung membuka layar penuh `9:16` saat listrik menyala:
-
-1. **Atur Rotasi Layar ke Portrait (`9:16`) pada X11:**
-   Tambahkan perintah berikut pada `~/.xprofile`:
-   ```bash
-   xrandr --output HDMI-1 --mode 1920x1080 --rotate right
-   ```
-2. **Pasang Paket Pendukung Kiosk:**
-   ```bash
-   sudo apt-get update && sudo apt-get install -y chromium-browser unclutter x11-xserver-utils
-   ```
-3. **Jalankan Skrip `scripts/launch-kiosk.sh` via Autostart Desktop:**
-   Buat file `~/.config/autostart/signaflow-kiosk.desktop`:
-   ```ini
-   [Desktop Entry]
-   Type=Application
-   Name=SignaFlow Kiosk Player
-   Exec=/home/kiosk/launch-kiosk.sh
-   X-GNOME-Autostart-enabled=true
-   ```
-
----
-
-## 5. SOP Backup & Restore Data
-
-Seluruh data persisten berada di dalam dua *Docker Volume*: `signaflow_pgdata` (Database) dan `signaflow_media` (File Video/Gambar).
-
-### 5.1 Backup Database PostgreSQL
-```bash
-docker compose exec -T db pg_dump -U signaflow -d signaflow_db --clean --if-exists > backup_db_$(date +%Y%m%d_%H%M%S).sql
-```
-
-### 5.2 Restore Database PostgreSQL
-```bash
-cat backup_db_20261116.sql | docker compose exec -T db psql -U signaflow -d signaflow_db
-```
-
-### 5.3 Backup Volume File Media
-```bash
-docker run --rm \
-  -v signaflow_media:/data/uploads:ro \
-  -v $(pwd):/backup \
-  alpine tar -czf /backup/backup_media_$(date +%Y%m%d).tar.gz -C /data/uploads .
-```
-
----
-
-## 6. Playbook Penanganan Insiden (*Troubleshooting*)
-
-| Gejala Masalah | Penyebab Umum | Langkah Penyelesaian |
+| Masalah yang Sering Muncul | Penyebab | Cara Memperbaiki |
 | :--- | :--- | :--- |
-| **Layar Kiosk tidak langsung berubah saat jadwal di CMS disimpan** | Koneksi SSE sedang terputus karena gangguan Wi-Fi lokal. | 1. Tunggu maksimal 30 detik (kiosk akan mengambil pembaruan lewat *polling heartbeat*).<br>2. Jika masih belum berubah, ketuk pojok kiri atas layar kiosk 5x untuk membuka *Overlay Diagnostik* dan cek status jaringan. |
-| **Muncul peringatan gagal menyimpan cache offline di Kiosk/HP** | Halaman `/player` dibuka melalui `http://` biasa (bukan `https://` atau `localhost`). | Pastikan mengakses melalui port HTTPS Caddy (`https://<ip-server>/player`) dan sertifikat Root CA sudah terpasang. |
-| **Gagal menghapus video di Media Library (`409 Conflict`)** | Video tersebut masih terdaftar di dalam salah satu *playlist*. | Buka menu **Playlists**, lepaskan video tersebut dari *playlist* yang menggunakannya, lalu hapus kembali di **Media Library**. |
-| **Penyimpanan disk Kiosk penuh** | Kuota cache browser terlampaui oleh file lama. | Buka **Admin CMS** -> **Devices** -> pilih perangkat -> tekan tombol **Clear Cache** (kiosk akan menghapus seluruh *cache* dan mengunduh ulang hanya aset yang aktif). |
+| **TV Kiosk tidak langsung berubah pas jadwal diubah di Admin** | Koneksi sinyal SSE sedang tersendat. | Tunggu maksimal 30 detik. TV Kiosk otomatis mengecek jadwal baru lewat laporan rutin (*Heartbeat*). Atau klik tombol **Reload Layar** di menu Admin. |
+| **Gagal menghapus video di Media Library (Muncul Pesan Conflict)** | Video tersebut masih dipakai di salah satu playlist aktif. | Buka menu **Playlists**, keluarkan dulu video itu dari playlist yang memakainya, baru hapus kembali di Media Library. |
+| **Layar Kiosk di HP atau TV tidak mau simpan video offline** | Halaman dibuka lewat `http://` biasa (bukan `https://`). | Fitur *Service Worker* di browser mewajibkan koneksi aman HTTPS. Pastikan alamatnya diawali dengan `https://`. |
+| **Penyimpanan harddisk Kiosk penuh** | Terlalu banyak video lama yang masih tersimpan di memori browser. | Buka menu **Devices** di Admin -> pilih Kiosk terkait -> klik tombol **Bersihkan Cache** (`CLEAR_CACHE`). TV Kiosk akan otomatis menghapus video lama. |

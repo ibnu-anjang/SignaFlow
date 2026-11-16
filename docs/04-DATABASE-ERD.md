@@ -1,25 +1,23 @@
-# 04. ERD & Spesifikasi Skema Database
+# 04. ERD & Desain Database
 
-| Metadata Dokumen | Detail |
-| :--- | :--- |
-| **DBMS** | PostgreSQL 16 (Alpine) |
-| **ORM** | Prisma ORM |
-| **Tingkat Normalisasi** | Third Normal Form (3NF) |
+Dokumen ini menjelaskan **struktur tabel database PostgreSQL** yang kita gunakan di proyek SignaFlow. Kita memakai **Prisma ORM**, jadi kita tidak perlu menulis query SQL manual yang rumit saat ngoding di Next.js.
 
 ---
 
-## 1. Entity Relationship Diagram (ERD)
+## 1. Gambar Relasi Tabel (Entity Relationship Diagram)
+
+Di bawah ini adalah peta hubungan antar tabel di database kita:
 
 ```mermaid
 erDiagram
     USERS ||--o{ MEDIA_ASSETS : "mengunggah"
     USERS ||--o{ PLAYLISTS : "membuat"
-    USERS ||--o{ SCHEDULES : "mengonfigurasi"
+    USERS ||--o{ SCHEDULES : "mengatur"
     PLAYLISTS ||--o{ PLAYLIST_ITEMS : "memiliki_item"
-    MEDIA_ASSETS ||--o{ PLAYLIST_ITEMS : "digunakan_dalam"
-    PLAYLISTS ||--o{ DEVICES : "menjadi_fallback"
+    MEDIA_ASSETS ||--o{ PLAYLIST_ITEMS : "dipakai_di"
+    PLAYLISTS ||--o{ DEVICES : "jadi_playlist_cadangan"
     PLAYLISTS ||--o{ SCHEDULES : "ditayangkan_oleh"
-    DEVICES ||--o{ SCHEDULES : "dijadwalkan_pada"
+    DEVICES ||--o{ SCHEDULES : "ditargetkan_oleh"
     DEVICES ||--o{ DEVICE_LOGS : "mencatat_log"
 
     USERS {
@@ -27,118 +25,99 @@ erDiagram
         varchar email UK
         varchar password_hash
         varchar full_name
-        user_role role "ADMIN | OPERATOR"
-        boolean is_active
-        timestamptz created_at
-        timestamptz updated_at
+        user_role role "ADMIN / OPERATOR"
     }
 
     MEDIA_ASSETS {
         uuid id PK
-        varchar title
-        varchar file_name
-        varchar storage_path UK
-        varchar public_url
-        varchar mime_type
-        media_type type "IMAGE | VIDEO"
-        bigint size_bytes
-        char_64 checksum_sha256
-        int width
-        int height
-        int duration_seconds "Nullable untuk IMAGE"
-        uuid uploaded_by_id FK
-        timestamptz created_at
+        varchar title "Judul Video/Gambar"
+        varchar public_url "Link File (/media/...)"
+        media_type type "IMAGE / VIDEO"
+        bigint size_bytes "Ukuran File (Byte)"
+        char_64 checksum_sha256 "Sidik Jari File"
+        int width "1080"
+        int height "1920"
+        int duration_seconds "Durasi Video"
     }
 
     PLAYLISTS {
         uuid id PK
-        varchar name
-        text description
+        varchar name "Nama Playlist"
+        int version "Versi (Naik tiap diubah)"
         boolean is_active
-        int version "Auto-increment saat item berubah"
-        uuid created_by_id FK
-        timestamptz created_at
-        timestamptz updated_at
     }
 
     PLAYLIST_ITEMS {
         uuid id PK
         uuid playlist_id FK
         uuid media_asset_id FK
-        int sort_order
-        int duration_seconds
-        transition_type transition "CUT | CROSSFADE"
-        timestamptz created_at
+        int sort_order "Urutan (0, 1, 2...)"
+        int duration_seconds "Berapa detik tampil"
+        transition_type transition "CUT / CROSSFADE"
     }
 
     DEVICES {
         uuid id PK
-        varchar device_key UK "UUID Unik Perangkat/Browser"
-        varchar name
-        varchar location
-        char_6 pairing_code UK "Kode 6 digit sementara"
-        timestamptz pairing_expires_at
-        char_64 token_hash UK "SHA-256 dari deviceToken"
-        device_status status "UNPAIRED | ONLINE | STALE | OFFLINE"
-        uuid fallback_playlist_id FK
+        varchar device_key UK "UUID Kiosk"
+        varchar name "Nama TV (misal: TV Lobi)"
+        varchar location "Lokasi Fisik"
+        char_6 pairing_code "Kode 6 Digit Sementara"
+        char_64 token_hash "Token Rahasia Kiosk"
+        device_status status "ONLINE / STALE / OFFLINE"
+        uuid fallback_playlist_id FK "Playlist Cadangan"
         char_64 current_manifest_hash
-        uuid current_playlist_id FK
-        uuid current_media_id FK
-        int sync_progress "0 s/d 100"
-        int free_storage_mb
-        varchar pending_command "Antrean perintah saat offline"
-        timestamptz last_heartbeat_at
-        timestamptz paired_at
-        timestamptz created_at
-        timestamptz updated_at
+        int sync_progress "Persentase Download (0-100)"
     }
 
     SCHEDULES {
         uuid id PK
-        varchar name
+        varchar name "Nama Jadwal"
         uuid playlist_id FK
-        uuid device_id FK "NULL = Berlaku untuk semua perangkat"
+        uuid device_id FK "Target Kiosk (Bisa NULL = Semua TV)"
         date start_date
-        date end_date "NULL = Berlaku selamanya"
-        int_array days_of_week "Array 0(Minggu)..6(Sabtu)"
-        char_5 start_time "Format HH:mm (00:00 - 23:59)"
-        char_5 end_time "Format HH:mm (00:01 - 24:00)"
-        int priority "1 s/d 100"
+        date end_date
+        int_array days_of_week "Hari (0=Minggu .. 6=Sabtu)"
+        char_5 start_time "Jam Mulai (misal: 06:00)"
+        char_5 end_time "Jam Selesai (misal: 12:00)"
+        int priority "Prioritas (1-100)"
         boolean is_active
-        uuid created_by_id FK
-        timestamptz created_at
-        timestamptz updated_at
     }
 
     DEVICE_LOGS {
         uuid id PK
         uuid device_id FK
-        log_level level "INFO | WARN | ERROR"
-        varchar event_type "BOOT | SYNC_COMPLETE | PLAYBACK_ERROR | COMMAND_ACK"
+        log_level level "INFO / WARN / ERROR"
+        varchar event_type "BOOT / SYNC_COMPLETE / PLAYBACK_ERROR"
         text message
-        jsonb metadata
-        timestamptz created_at
     }
 ```
 
 ---
 
-## 2. Kamus Data & Kebijakan Relasi (*Foreign Key Policies*)
+## 2. Penjelasan 7 Tabel Utama (Bahasa Sederhana)
 
-| Tabel | Relasi Kunci Asing (*Foreign Key*) | Kebijakan `ON DELETE` | Alasan Teknis |
-| :--- | :--- | :--- | :--- |
-| `playlist_items` | `playlist_id -> playlists.id` | `CASCADE` | Jika sebuah *playlist* dihapus, seluruh baris urutan item di dalamnya ikut terhapus otomatis. |
-| `playlist_items` | `media_asset_id -> media_assets.id` | **`RESTRICT`** | **Sangat Penting:** Mencegah admin menghapus file video/gambar yang masih terdaftar di dalam *playlist*. Menghindari *broken link* pada layar kiosk. |
-| `devices` | `fallback_playlist_id -> playlists.id` | `SET NULL` | Jika *fallback playlist* dihapus, perangkat tetap terdaftar namun `fallback_playlist_id` diatur menjadi `NULL`. |
-| `schedules` | `playlist_id -> playlists.id` | `CASCADE` | Jika *playlist* dihapus, jadwal yang menayangkan *playlist* tersebut ikut dibersihkan. |
-| `schedules` | `device_id -> devices.id` | `CASCADE` | Jika sebuah perangkat kiosk dihapus, jadwal khusus untuk perangkat tersebut ikut terhapus. |
-| `device_logs` | `device_id -> devices.id` | `CASCADE` | Jika perangkat dihapus, riwayat log telemetrinya ikut dibersihkan. |
+1. **`users`:** Menyimpan akun staf/admin yang boleh login ke halaman `/admin` (email, password yang di-hash, dan nama lengkap).
+2. **`media_assets`:** Menyimpan catatan setiap file video atau gambar yang di-upload admin (nama file, ukuran byte, durasi video, dan sidik jari unik `checksum_sha256`).
+3. **`playlists`:** Menyimpan nama kelompok daftar putar (contoh: "Promo Pagi Driving Range", "Iklan Malam"). Setiap kali susunan playlist diubah, angka `version` otomatis bertambah 1.
+4. **`playlist_items`:** Tabel penghubung antara Playlist dan Media. Isinya mengatur: *"Di playlist A, Video B muncul di urutan ke-0 selama 10 detik dengan efek Crossfade"*.
+5. **`devices`:** Menyimpan daftar layar TV Kiosk yang terdaftar di sistem kita (nama TV, lokasi fisik, status online/offline, dan kode pairing 6 digit sementara).
+6. **`schedules`:** Menyimpan aturan jam tayang (kapan playlist A harus diputar, dari jam berapa sampai jam berapa, di hari apa saja, dan untuk TV mana saja).
+7. **`device_logs`:** Buku harian TV Kiosk. Setiap kali TV menyala, selesai download video, atau mendeteksi video macet, TV mengirim laporan ke tabel ini agar Admin tahu riwayatnya.
 
 ---
 
-## 3. Spesifikasi Skema Prisma (`prisma/schema.prisma`)
+## 3. Aturan Pengaman Penghapusan (Foreign Key Safety)
 
-Berikut adalah skema Prisma siap pakai yang menjadi acuan migrasi pada Fase 1:
+Ada satu aturan keamanan database yang sangat penting di proyek ini:
+* **Pada tabel `playlist_items`:** Hubungan ke `media_assets` diatur ke **`ON DELETE RESTRICT`**.
+* **Apa artinya?** Kalau ada admin yang mencoba menghapus file video di menu Media Library, tapi video itu ternyata **masih terdaftar di dalam salah satu playlist aktif**, database akan menolak penghapusan tersebut dan memberi peringatan.
+* **Tujuannya:** Menjaga agar TV Kiosk di lapangan tidak bingung mencari file yang tiba-tiba hilang.
+
+---
+
+## 4. File Skema Prisma Siap Pakai (`prisma/schema.prisma`)
+
+Developer A bisa langsung memakai skema Prisma di bawah ini:
 
 ```prisma
 generator client {
@@ -330,11 +309,3 @@ model DeviceLog {
   @@map("device_logs")
 }
 ```
-
----
-
-## 4. Strategi Indeks & Pemeliharaan Data
-
-1. **Kompilasi Manifest Cepat (`idx_schedules_lookup`):** Indeks komposit `(is_active, device_id, start_date, end_date, priority DESC)` memastikan *query* pencarian jadwal untuk sebuah kiosk berjalan menggunakan *Index Scan* dalam `< 2ms`.
-2. **Otentikasi Kiosk (`token_hash` UNIQUE):** Kolom `token_hash` memiliki indeks unik B-Tree sehingga validasi `Bearer <deviceToken>` pada setiap *heartbeat* 30 detik memiliki kompleksitas $O(\log N)$.
-3. **Retensi Log Otomatis (`device_logs`):** Karena kiosk beroperasi 24/7, tabel `device_logs` dipangkas secara berkala (menyimpan maksimal 1.000 baris terbaru per perangkat atau menghapus log `INFO` yang berusia lebih dari 14 hari) agar ukuran disk database tetap ramping.

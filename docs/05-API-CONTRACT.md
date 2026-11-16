@@ -1,329 +1,110 @@
-# 05. Kontrak API & Protokol Realtime (SSE)
+# 05. Kontrak API & Protokol Realtime
 
-Dokumen ini adalah kontrak baku (*Locked Interface Contract*) antara **Developer A (Backend)** dan **Developer B (Frontend & Kiosk Player)**. Seluruh tipe data disimpan di `src/types/contracts.ts`.
+Dokumen ini adalah **surat perjanjian format data (kontrak API)** antara **Developer A (yang bikin Backend)** dan **Developer B (yang bikin Tampilan Web & Player)**.
 
----
-
-## 1. Standar Protokol & Keamanan
-
-1. **Format Envelope Respons:**
-   - Sukses (`2xx`):
-     ```json
-     {
-       "ok": true,
-       "data": { ... },
-       "serverTimestampMs": 1794803500123
-     }
-     ```
-   - Gagal (`4xx` / `5xx`):
-     ```json
-     {
-       "ok": false,
-       "error": {
-         "code": "MEDIA_IN_USE",
-         "message": "Video ini masih digunakan pada 2 playlist aktif.",
-         "details": { "playlists": ["Promo Pagi", "Default Loop"] }
-       }
-     }
-     ```
-2. **Skema Autentikasi Ganda:**
-   - **Admin CMS (`/api/v1/auth/*`, `/api/v1/media/*`, `/api/v1/playlists/*`, `/api/v1/schedules/*`, `/api/v1/devices/*`):** Menggunakan *cookie* `signaflow_session` (`HttpOnly; Secure; SameSite=Lax`) berisi token JWT yang ditandatangani dengan `JWT_SECRET` (algoritma `HS256`).
-   - **Perangkat Kiosk (`/api/v1/device/*`):** Menggunakan header `Authorization: Bearer <deviceToken>` (atau query param `?token=<deviceToken>` khusus untuk `EventSource` SSE). Server melakukan *hashing* `SHA-256` terhadap token tersebut dan mencocokkannya dengan kolom `devices.token_hash`.
+Dengan adanya dokumen ini, kalian berdua bisa langsung ngoding secara bersamaan tanpa perlu saling tunggu! Dev B bisa bikin tampilan dengan data pura-pura (*mock data*), dan Dev A bisa langsung bikin API-nya di Next.js. Begitu keduanya selesai, sistem langsung nyambung tanpa revisi besar.
 
 ---
 
-## 2. Daftar Lengkap Endpoint REST API
+## 1. Aturan Format Data Response
 
-### 2.1 Autentikasi Admin
-| Metode | Endpoint | Deskripsi | Kode Status |
-| :--- | :--- | :--- | :--- |
-| `POST` | `/api/v1/auth/login` | Login menggunakan `email` & `password`. | `200`, `401` |
-| `POST` | `/api/v1/auth/logout` | Menghapus *cookie* sesi admin. | `200` |
-| `GET` | `/api/v1/auth/me` | Mengambil profil pengguna yang sedang aktif. | `200`, `401` |
+Semua API di SignaFlow menggunakan format JSON yang konsisten:
 
-### 2.2 Manajemen Aset Media
-| Metode | Endpoint | Deskripsi | Kode Status |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/v1/media` | Mengambil daftar media (query opsional: `?type=IMAGE\|VIDEO&q=keyword`). | `200` |
-| `POST` | `/api/v1/media` | Mengunggah file via `multipart/form-data` (`file`, `title`, `durationSeconds`). | `201`, `400`, `413` |
-| `DELETE` | `/api/v1/media/:id` | Menghapus file dari database & disk (ditolak jika masih dipakai di `playlist_items`). | `200`, `404`, `409` |
-
-### 2.3 Manajemen Playlist
-| Metode | Endpoint | Deskripsi | Kode Status |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/v1/playlists` | Daftar seluruh *playlist* beserta ringkasan jumlah item & total durasi. | `200` |
-| `POST` | `/api/v1/playlists` | Membuat *playlist* baru beserta urutan `items`. | `201`, `400` |
-| `GET` | `/api/v1/playlists/:id` | Detail satu *playlist* beserta daftar item dan objek `mediaAsset`. | `200`, `404` |
-| `PUT` | `/api/v1/playlists/:id` | Mengganti metadata & urutan item *playlist* (otomatis menaikkan `version` + kirim SSE). | `200`, `400`, `404` |
-| `DELETE` | `/api/v1/playlists/:id` | Menghapus *playlist*. | `200`, `404` |
-
-### 2.4 Manajemen Jadwal (*Day-Parting Schedules*)
-| Metode | Endpoint | Deskripsi | Kode Status |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/v1/schedules` | Daftar seluruh jadwal (query opsional: `?deviceId=...`). | `200` |
-| `POST` | `/api/v1/schedules` | Membuat jadwal baru dan memicu `MANIFEST_UPDATED` via SSE ke perangkat target. | `201`, `400` |
-| `PUT` | `/api/v1/schedules/:id` | Memperbarui jadwal dan memicu `MANIFEST_UPDATED` via SSE. | `200`, `400`, `404` |
-| `DELETE` | `/api/v1/schedules/:id` | Menghapus jadwal dan memicu `MANIFEST_UPDATED` via SSE. | `200`, `404` |
-
-### 2.5 Manajemen Armada Kiosk (Sisi Admin)
-| Metode | Endpoint | Deskripsi | Kode Status |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/v1/devices` | Daftar seluruh perangkat kiosk beserta status terkini (`ONLINE`, `STALE`, `OFFLINE`). | `200` |
-| `POST` | `/api/v1/devices/pair` | Mengklaim kode 6 digit (`pairingCode`), memberi nama perangkat, dan mengikat `fallbackPlaylistId`. | `200`, `400`, `404` |
-| `PATCH` | `/api/v1/devices/:id` | Memperbarui `name`, `location`, atau `fallbackPlaylistId` perangkat. | `200`, `404` |
-| `POST` | `/api/v1/devices/:id/command` | Mengirim komando jarak jauh (`SYNC_MANIFEST`, `RELOAD_PLAYER`, `CLEAR_CACHE`, `UNPAIR_DEVICE`). | `200`, `404` |
-| `GET` | `/api/v1/devices/:id/logs` | Mengambil 100 baris log terbaru untuk perangkat tertentu. | `200`, `404` |
-
-### 2.6 Endpoint Runtime Kiosk (Sisi Layar `/player`)
-| Metode | Endpoint | Deskripsi | Kode Status |
-| :--- | :--- | :--- | :--- |
-| `POST` | `/api/v1/device/pair/request` | Mengirim `deviceKey` dan meminta kode *pairing* 6 digit baru (berlaku 10 menit). | `200`, `429` |
-| `GET` | `/api/v1/device/pair/status` | *Polling* status *pairing* (`?deviceKey=...`). Mengembalikan `deviceToken` satu kali saat klaim berhasil. | `200`, `404` |
-| `GET` | `/api/v1/device/manifest` | Mengambil dokumen `DeviceManifestDTO` lengkap beserta `manifestHash` dan `serverTimestampMs`. | `200`, `401` |
-| `POST` | `/api/v1/device/heartbeat` | Melaporkan telemetri tiap 30 detik & mengambil `latestManifestHash` serta `pendingCommand`. | `200`, `401` |
-| `POST` | `/api/v1/device/logs` | Mengirim kumpulan log *offline* / *playback error* ke server. | `201`, `401` |
-| `GET` | `/api/v1/device/stream` | Koneksi *Server-Sent Events* (SSE) untuk komando instan. | `200`, `401` |
+* **Kalau Sukses (Status 200 / 201):**
+  ```json
+  {
+    "ok": true,
+    "data": { ... },
+    "serverTimestampMs": 1794803500123
+  }
+  ```
+* **Kalau Gagal / Error (Status 400 / 401 / 404 / 409):**
+  ```json
+  {
+    "ok": false,
+    "error": {
+      "code": "MEDIA_SEDANG_DIPAKAI",
+      "message": "File video ini tidak bisa dihapus karena masih dipakai di Playlist Promo Pagi."
+    }
+  }
+  ```
 
 ---
 
-## 3. Kamus Kode Error Standar
+## 2. Cara Login & Autentikasi
 
-| Kode Error | HTTP Status | Arti & Penanganan di Sisi Klien |
+1. **Untuk Admin (Halaman `/admin`):**
+   Login pakai email dan password di `/api/v1/auth/login`. Begitu sukses, browser otomatis menyimpan cookie sesi `signaflow_session`. Dev B tidak perlu repot mengurus simpan token di state React.
+2. **Untuk TV Kiosk (Halaman `/player`):**
+   Kiosk menggunakan token rahasia (`deviceToken`). Setiap kali Kiosk memanggil API, sertakan header:
+   `Authorization: Bearer <deviceToken>`
+
+---
+
+## 3. Daftar Lengkap Alamat API (Endpoint)
+
+### A. Autentikasi Admin
+| Method | Alamat URL | Fungsi |
 | :--- | :--- | :--- |
-| `UNAUTHORIZED` | `401` | Sesi admin habis atau `deviceToken` kiosk tidak valid/telah di-*unpair*. Kiosk wajib kembali ke layar *pairing*. |
-| `VALIDATION_ERROR` | `400` | Input form tidak valid (misal `endTime <= startTime`). Tampilkan pesan pada field terkait. |
-| `INVALID_MEDIA_TYPE` | `400` | Format file atau *magic bytes* bukan gambar/video yang diizinkan. |
-| `MEDIA_IN_USE` | `409` | Aset media gagal dihapus karena masih dipakai di salah satu *playlist*. |
-| `PAIRING_CODE_EXPIRED` | `400` | Kode 6 digit tidak ditemukan atau sudah lewat 10 menit. |
+| `POST` | `/api/v1/auth/login` | Login admin (kirim `email` & `password`). |
+| `POST` | `/api/v1/auth/logout` | Logout (hapus cookie sesi). |
+| `GET` | `/api/v1/auth/me` | Ambil data profil admin yang sedang login. |
+
+### B. Pengelolaan Video & Gambar (Media)
+| Method | Alamat URL | Fungsi |
+| :--- | :--- | :--- |
+| `GET` | `/api/v1/media` | Ambil semua daftar file media yang sudah di-upload. |
+| `POST` | `/api/v1/media` | Upload file baru via form-data (`file`, `title`, `durationSeconds`). |
+| `DELETE` | `/api/v1/media/:id` | Hapus file media (akan ditolak jika file masih dipakai di playlist). |
+
+### C. Pengelolaan Playlist
+| Method | Alamat URL | Fungsi |
+| :--- | :--- | :--- |
+| `GET` | `/api/v1/playlists` | Ambil semua daftar playlist beserta jumlah videonya. |
+| `POST` | `/api/v1/playlists` | Buat playlist baru beserta urutan videonya. |
+| `GET` | `/api/v1/playlists/:id` | Ambil detail satu playlist lengkap dengan daftar videonya. |
+| `PUT` | `/api/v1/playlists/:id` | Perbarui urutan video di playlist (otomatis menaikkan versi). |
+| `DELETE` | `/api/v1/playlists/:id` | Hapus playlist. |
+
+### D. Pengelolaan Jadwal Tayang (Schedules)
+| Method | Alamat URL | Fungsi |
+| :--- | :--- | :--- |
+| `GET` | `/api/v1/schedules` | Ambil semua daftar jadwal jam tayang. |
+| `POST` | `/api/v1/schedules` | Buat jadwal tayang baru (otomatis kirim sinyal ke Kiosk). |
+| `PUT` | `/api/v1/schedules/:id` | Edit jadwal tayang (otomatis kirim sinyal ke Kiosk). |
+| `DELETE` | `/api/v1/schedules/:id` | Hapus jadwal tayang. |
+
+### E. Pengelolaan TV Kiosk (Sisi Admin)
+| Method | Alamat URL | Fungsi |
+| :--- | :--- | :--- |
+| `GET` | `/api/v1/devices` | Ambil daftar semua TV Kiosk beserta status ONLINE/OFFLINE. |
+| `POST` | `/api/v1/devices/pair` | Klaim kode 6 digit dari TV Kiosk baru untuk dipasangkan. |
+| `PATCH` | `/api/v1/devices/:id` | Ganti nama TV, lokasi, atau playlist cadangan. |
+| `POST` | `/api/v1/devices/:id/command` | Kirim perintah: `SYNC_MANIFEST`, `RELOAD_PLAYER`, `CLEAR_CACHE`. |
+| `GET` | `/api/v1/devices/:id/logs` | Lihat 100 riwayat log terakhir dari TV Kiosk tersebut. |
+
+### F. API yang Dipanggil oleh TV Kiosk (`/player`)
+| Method | Alamat URL | Fungsi |
+| :--- | :--- | :--- |
+| `POST` | `/api/v1/device/pair/request` | TV meminta kode 6 digit baru saat pertama kali dinyalakan. |
+| `GET` | `/api/v1/device/pair/status` | TV mengecek apakah kode 6 digitnya sudah diketik oleh Admin di HP. |
+| `GET` | `/api/v1/device/manifest` | TV mengambil daftar lengkap jadwal dan video yang harus di-download. |
+| `POST` | `/api/v1/device/heartbeat` | TV melapor setiap 30 detik: sedang memutar apa, baterai/storage berapa, dll. |
+| `POST` | `/api/v1/device/logs` | TV mengirim catatan kalau ada video yang macet atau error. |
+| `GET` | `/api/v1/device/stream` | Jalur SSE (pipa sinyal) supaya TV menerima perintah instan dari Admin. |
 
 ---
 
-## 4. Kontrak TypeScript Lengkap (`src/types/contracts.ts`)
+## 4. Bentuk Data TypeScript Bersama (`src/types/contracts.ts`)
+
+File TypeScript ini sudah ada di folder proyek [`src/types/contracts.ts`](file:///home/iben/Desktop/TUGAS/PKL-PROJECT/SignaFlow/src/types/contracts.ts). Baik Dev A maupun Dev B tinggal mengimpor tipe data dari file ini:
 
 ```typescript
-export type UserRole = 'ADMIN' | 'OPERATOR';
-export type DeviceStatus = 'UNPAIRED' | 'ONLINE' | 'STALE' | 'OFFLINE';
-export type MediaType = 'IMAGE' | 'VIDEO';
-export type TransitionType = 'CUT' | 'CROSSFADE';
-export type LogLevel = 'INFO' | 'WARN' | 'ERROR';
-export type RemoteCommandType =
-  | 'SYNC_MANIFEST'
-  | 'RELOAD_PLAYER'
-  | 'CLEAR_CACHE'
-  | 'UNPAIR_DEVICE';
-
-export interface ApiSuccess<T> {
-  ok: true;
-  data: T;
-  serverTimestampMs: number;
-}
-
-export interface ApiError {
-  ok: false;
-  error: {
-    code: string;
-    message: string;
-    details?: unknown;
-  };
-}
-
-export type ApiResponse<T> = ApiSuccess<T> | ApiError;
-
-export interface AuthUserDTO {
-  id: string;
-  email: string;
-  fullName: string;
-  role: UserRole;
-}
-
-export interface MediaAssetDTO {
-  id: string;
-  title: string;
-  fileName: string;
-  publicUrl: string;
-  mimeType: string;
-  type: MediaType;
-  sizeBytes: number;
-  checksumSha256: string;
-  width: number;
-  height: number;
-  durationSeconds: number | null;
-  createdAt: string;
-}
-
-export interface PlaylistItemDTO {
-  id: string;
-  sortOrder: number;
-  durationSeconds: number;
-  transition: TransitionType;
-  mediaAsset: MediaAssetDTO;
-}
-
-export interface PlaylistDTO {
-  id: string;
-  name: string;
-  description: string | null;
-  isActive: boolean;
-  version: number;
-  totalDurationSeconds: number;
-  itemCount: number;
-  items: PlaylistItemDTO[];
-  updatedAt: string;
-}
-
-export interface UpsertPlaylistRequest {
-  name: string;
-  description?: string | null;
-  isActive?: boolean;
-  items: Array<{
-    mediaAssetId: string;
-    sortOrder: number;
-    durationSeconds: number;
-    transition: TransitionType;
-  }>;
-}
-
-export interface ScheduleDTO {
-  id: string;
-  name: string;
-  playlistId: string;
-  playlistName: string;
-  deviceId: string | null;
-  deviceName: string | null;
-  startDate: string; // "YYYY-MM-DD"
-  endDate: string | null; // "YYYY-MM-DD" | null
-  daysOfWeek: number[]; // [0..6]
-  startTime: string; // "HH:mm"
-  endTime: string; // "HH:mm"
-  priority: number; // 1..100
-  isActive: boolean;
-  updatedAt: string;
-}
-
-export interface UpsertScheduleRequest {
-  name: string;
-  playlistId: string;
-  deviceId: string | null;
-  startDate: string;
-  endDate: string | null;
-  daysOfWeek: number[];
-  startTime: string;
-  endTime: string;
-  priority: number;
-  isActive: boolean;
-}
-
-export interface DeviceSummaryDTO {
-  id: string;
-  deviceKey: string;
-  name: string;
-  location: string | null;
-  status: DeviceStatus;
-  fallbackPlaylistId: string | null;
-  fallbackPlaylistName: string | null;
-  currentManifestHash: string | null;
-  currentPlaylistId: string | null;
-  currentPlaylistName: string | null;
-  currentMediaId: string | null;
-  currentMediaTitle: string | null;
-  syncProgress: number;
-  freeStorageMb: number | null;
-  lastHeartbeatAt: string | null;
-  pairedAt: string | null;
-}
-
-export interface PairingRequestPayload {
-  deviceKey: string;
-}
-
-export interface PairingRequestResponse {
-  deviceId: string;
-  pairingCode: string;
-  expiresAtIso: string;
-  pollIntervalMs: number;
-}
-
-export interface PairingStatusResponse {
-  paired: boolean;
-  pairingCode: string | null;
-  deviceToken?: string;
-  device?: {
-    id: string;
-    name: string;
-    location: string | null;
-  };
-}
-
-export interface ClaimPairingCodeRequest {
-  pairingCode: string;
-  name: string;
-  location?: string;
-  fallbackPlaylistId?: string | null;
-}
-
-export interface DeviceManifestDTO {
-  deviceId: string;
-  deviceName: string;
-  manifestHash: string;
-  generatedAtIso: string;
-  serverTimestampMs: number;
-  timezone: string;
-  fallbackPlaylist: PlaylistDTO | null;
-  schedules: Array<{
-    id: string;
-    name: string;
-    startDate: string;
-    endDate: string | null;
-    daysOfWeek: number[];
-    startTime: string;
-    endTime: string;
-    priority: number;
-    playlist: PlaylistDTO;
-  }>;
-  requiredAssets: MediaAssetDTO[];
-}
-
-export interface HeartbeatRequest {
-  currentManifestHash: string | null;
-  currentPlaylistId: string | null;
-  currentMediaId: string | null;
-  syncProgress: number;
-  freeStorageMb: number | null;
-  uptimeSeconds: number;
-}
-
-export interface HeartbeatResponse {
-  serverTimestampMs: number;
-  latestManifestHash: string;
-  syncRequired: boolean;
-  pendingCommand: RemoteCommandType | null;
-}
-
-export interface DeviceLogCreateItem {
-  level: LogLevel;
-  eventType: string;
-  message: string;
-  metadata?: Record<string, unknown>;
-}
-
-export type KioskSSEEvent =
-  | {
-      type: 'CONNECTED';
-      deviceId: string;
-      serverTimestampMs: number;
-    }
-  | {
-      type: 'PING';
-      serverTimestampMs: number;
-    }
-  | {
-      type: 'MANIFEST_UPDATED';
-      latestManifestHash: string;
-      serverTimestampMs: number;
-    }
-  | {
-      type: 'REMOTE_COMMAND';
-      command: RemoteCommandType;
-      issuedAtMs: number;
-    };
+import type { 
+  PlaylistDTO, 
+  ScheduleDTO, 
+  DeviceSummaryDTO, 
+  DeviceManifestDTO 
+} from '@/types/contracts';
 ```
+Semua tipe data sudah siap pakai dan tidak perlu dibuat ulang dari nol!

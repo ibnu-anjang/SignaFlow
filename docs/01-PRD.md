@@ -1,105 +1,92 @@
-# 01. Product Requirements Document (PRD)
+# 01. Product Requirements Document (PRD) - Kebutuhan Produk
 
-| Metadata Dokumen | Detail |
+| Info Dokumen | Detail |
 | :--- | :--- |
-| **Nama Produk** | SignaFlow Digital Signage Platform |
-| **Versi Dokumen** | 1.0.0 (Fase 0 - Baseline) |
-| **Target Layar Utama** | Kiosk Berdiri Vertikal (Portrait `9:16`, Resolusi `1080x1920`) |
-| **Target Akses Admin** | Browser Desktop (`16:9`) & Browser Mobile/HP (Responsive PWA) |
-| **Status** | Disetujui untuk Fase 1 |
+| **Nama Aplikasi** | SignaFlow (Platform Digital Signage) |
+| **Bentuk Layar TV** | Kiosk Vertikal / Berdiri (Rasio `9:16`, Resolusi `1080x1920`) |
+| **Cara Akses Admin** | Browser Laptop/PC (`16:9`) dan Browser HP (Responsive) |
 
 ---
 
-## 1. Latar Belakang & Pernyataan Masalah
+## 1. Masalah Nyata yang Mau Kita Selesaikan
 
-Area komersial publik seperti *driving range* golf, klinik kesehatan, dan koridor mal mengoperasikan layar informasi dan promosi vertikal (`9:16`, `1080x1920`) selama 24 jam sehari, 7 hari seminggu. Pengelolaan layar menggunakan cara konvensional (colok *flashdisk* USB manual atau membuka halaman web biasa di *browser*) menimbulkan empat masalah operasional serius:
+Banyak tempat komersial seperti *driving range* golf, klinik, dan koridor mal memasang layar TV berdiri (vertikal `9:16`) untuk menampilkan poster promo dan video iklan selama 24 jam penuh.
 
-1. **Kegagalan Saat Wi-Fi Putus:** Koneksi Wi-Fi di area publik sering mengalami gangguan. Halaman web biasa akan menampilkan pesan *error browser* ("No Internet"), ikon *buffering*, atau layar putih kosong di hadapan pengunjung.
-2. **Ketidakmampuan Ganti Konten Otomatis Berdasarkan Waktu (*Day-Parting*):** Materi promosi dan tabel harga sering berbeda antara pagi hari, siang/malam hari, dan akhir pekan. Mengganti *playlist* secara manual setiap pergantian jam sangat rawan lupa dan memakan tenaga staf.
-3. **Kebocoran Antarmuka Sistem (*UI Leaks*):** *Browser* standar yang tidak dikunci berisiko menampilkan *address bar*, kursor *mouse*, *pop-up* notifikasi, *scrollbar*, atau berubah tampilan ketika layar tersentuh pengunjung.
-4. **Buta Status Operasional di Lapangan:** Staf operasional tidak mengetahui apakah layar kiosk di ujung koridor sedang menyala normal, memutar jadwal yang benar, atau macet pada satu *frame* video.
+Kalau cuma pakai cara biasa (misalnya colok *flashdisk* USB ke TV atau buka halaman web biasa di browser TV), timbul 4 masalah besar di lapangan:
 
----
-
-## 2. Profil Pengguna & Aktor Sistem
-
-### 2.1 Aktor Manusia: Admin / Operator Lokasi
-* **Perangkat yang Digunakan:** Laptop/PC di ruang kantor (`16:9`) **dan Smartphone/HP** saat berkeliling lokasi.
-* **Tanggung Jawab:**
-  - Mengunggah materi gambar dan video vertikal (`1080x1920`).
-  - Menyusun urutan *playlist* beserta durasi tampil per item.
-  - Membuat jadwal waktu tayang (*day-parting*) harian maupun akhir pekan.
-  - Melakukan *pairing* layar kiosk baru langsung di depan unit kiosk menggunakan HP.
-  - Memantau status kesehatan seluruh layar dan mengirim perintah *Force Sync* / *Reload* jarak jauh.
-
-### 2.2 Aktor Sistem: Perangkat Layar Kiosk (`/player`)
-* **Perangkat yang Digunakan:** Mini-PC Linux / Raspberry Pi / Industrial Box yang terhubung ke panel layar vertikal `1080x1920` (atau HP/Tablet vertikal saat mode simulasi/demo).
-* **Perilaku Otonom:**
-  - Menyala otomatis (*auto-boot*) langsung ke layar penuh tanpa kursor dan tanpa *address bar*.
-  - Menampilkan kode *pairing* 6 digit saat belum terdaftar.
-  - Mengunduh dan memverifikasi keutuhan seluruh file video/gambar (`SHA-256`) ke penyimpanan lokal sebelum memutarnya.
-  - Mengevaluasi jadwal *day-parting* setiap detik secara lokal tanpa bergantung pada koneksi internet.
-  - Mengirim laporan kesehatan (*heartbeat*) setiap 30 detik dan mendengarkan perintah instan melalui SSE.
+1. **Wi-Fi Putus = Layar Malu-Maluin:** Wi-Fi di tempat umum sering tidak stabil. Kalau pakai web biasa, layar TV akan menampilkan pesan error browser ("No Internet") atau video muter-muter (*buffering*) di depan pengunjung.
+2. **Repot Ganti Promo Pagi vs Siang:** Promo pagi (jam 06:00 - 12:00) sering beda dengan promo siang/sore (jam 12:00 - 22:00) atau promo akhir pekan. Kalau pakai USB, staf harus bolak-balik cabut-colok flashdisk setiap pergantian jam.
+3. **Tampilan Browser Bocor ke Pengunjung:** Kalau browser tidak dikunci rapat, sering muncul address bar di atas, kursor mouse di tengah layar, atau tampilan membesar sendiri kalau layar disentuh pengunjung.
+4. **Admin Tidak Tahu Kalau Layar Mati:** Dari ruang kantor, admin tidak tahu apakah TV di koridor lantai 2 masih menyala, sedang memutar video yang benar, atau malah macet di satu gambar.
 
 ---
 
-## 3. User Stories & Kriteria Penerimaan (*Acceptance Criteria*)
+## 2. Siapa Saja yang Menggunakan Sistem Ini?
 
-| ID | Sebagai... | Saya ingin... | Agar... | Kriteria Penerimaan (Acceptance Criteria) |
-| :- | :--- | :--- | :--- | :--- |
-| **US-01** | Operator Lapangan | Memasangkan kiosk baru dengan mengetik 6 digit kode lewat HP | Saya tidak perlu bolak-balik ke ruang komputer saat memasang kiosk di koridor | 1. Layar kiosk menampilkan kode 6 digit yang berlaku 10 menit.<br>2. Saat kode diklaim di CMS (via HP/Desktop), layar kiosk otomatis beralih ke mode pemutar dalam `< 3` detik. |
-| **US-02** | Admin Pemasaran | Mengunggah video `.mp4` dan gambar `.png`/`.webp` dengan validasi otomatis | File yang rusak atau salah format tidak membuat kiosk *crash* | 1. Validasi *magic bytes* dan ukuran file (maks 25MB gambar, 250MB video).<br>2. Sistem menghitung *checksum* `SHA-256` otomatis.<br>3. Peringatan muncul jika dimensi media bukan rasio `9:16`. |
-| **US-03** | Admin Pemasaran | Menyusun urutan item di dalam *playlist* baik lewat laptop maupun HP | Urutan promosi dan durasi tampil sesuai kebutuhan kampanye | 1. Setiap item memiliki durasi (min. 3 detik) dan tipe transisi (`CUT`/`CROSSFADE`).<br>2. Urutan item dapat diubah menggunakan tombol panah naik/turun (ramah layar sentuh HP) maupun *drag-and-drop*. |
-| **US-04** | Admin Operasional | Menjadwalkan *Playlist Pagi* (`06:00-11:59`) dan *Playlist Siang* (`12:00-22:00`) serta jadwal khusus *Weekend* | Harga dan promo di layar berganti otomatis sesuai jam operasional | 1. Mendukung filter rentang tanggal, hari (`0..6`), jam mulai/selesai (`HH:mm`), dan prioritas (`1..100`).<br>2. Jika tidak ada jadwal aktif pada jam tertentu, kiosk otomatis memutar *Fallback Playlist*. |
-| **US-05** | Kiosk Player | Tetap memutar video dan mengganti jadwal tepat waktu saat Wi-Fi lokasi mati total | Layar tidak pernah menampilkan pesan *error* internet kepada pengunjung | 1. Seluruh media disimpan di `Cache Storage` dan jadwal di `IndexedDB`.<br>2. Pergantian jadwal pukul `12:00:00` tetap berjalan akurat meski kabel LAN/Wi-Fi dicabut.<br>3. *Refresh* atau *reboot* saat *offline* tetap memuat aplikasi dari *Service Worker*. |
-| **US-06** | Operator Teknis | Melihat status `ONLINE`/`OFFLINE` setiap layar dan menekan tombol *Force Refresh* | Saya bisa memastikan pembaruan promo langsung tayang atau menyegarkan layar dari jarak jauh | 1. Status diperbarui otomatis berdasarkan *heartbeat* 30 detik.<br>2. Perintah `SYNC_MANIFEST` atau `RELOAD_PLAYER` dieksekusi dalam `< 1` detik saat kiosk terhubung ke SSE. |
+Sistem kita terbagi menjadi dua bagian:
 
----
+### A. Pengguna Manusia: Admin / Staf Operasional (Buka `/admin`)
+Staf yang mengelola konten dari laptop kantor atau **langsung dari HP sambil jalan keliling lokasi**:
+* Mengunggah gambar poster (`.jpg`, `.png`, `.webp`) dan video iklan (`.mp4`, `.webm`) berukuran vertikal `9:16`.
+* Menyusun **Playlist** (menentukan urutan video/gambar dan berapa detik masing-masing ditampilkan).
+* Mengatur **Jadwal Tayang (Schedule)**, misalnya: Playlist Promo Pagi tayang jam 06:00 - 12:00, Playlist Promo Siang tayang jam 12:00 - 22:00.
+* Memasangkan (**Pairing**) TV Kiosk baru hanya dengan mengetik 6 angka yang muncul di layar TV.
+* Melihat status semua TV (mana yang `ONLINE` dan `OFFLINE`) serta menekan tombol **Force Sync / Reload** dari jarak jauh.
 
-## 4. Kebutuhan Fungsional (*Functional Requirements*)
-
-* **FR-01 (Manajemen & Validasi Media):**
-  - Mendukung gambar (`.jpg`, `.jpeg`, `.png`, `.webp`) hingga 25 MB dan video (`.mp4` H.264, `.webm` VP9) hingga 250 MB.
-  - Menghitung *hash* `SHA-256` untuk setiap file guna memastikan integritas unduhan di sisi kiosk.
-  - Mencegah penghapusan aset media yang masih digunakan di dalam *playlist* aktif (`HTTP 409 Conflict`).
-* **FR-02 (Penyusun Playlist & Versioning):**
-  - Mendukung penambahan, penghapusan, pengurutan item, pengaturan durasi tampil (detik), dan pemilihan efek transisi (`CUT` atau `CROSSFADE`).
-  - Setiap perubahan pada *playlist* otomatis menaikkan nomor `version` dan memperbarui nilai `manifestHash` untuk seluruh perangkat yang menggunakan *playlist* tersebut.
-* **FR-03 (Mesin Penjadwal *Day-Parting*):**
-  - Setiap jadwal memiliki atribut: `startDate`, `endDate` (opsional), `daysOfWeek` (`0=Minggu` s/d `6=Sabtu`), `startTime` (`HH:mm`), `endTime` (`HH:mm`), `priority` (`1-100`), dan target perangkat (`deviceId` spesifik atau `null` untuk global seluruh perangkat).
-  - **Aturan Resolusi Konflik:**
-    1. Jadwal spesifik perangkat maupun global yang aktif pada tanggal, hari, dan jam saat ini dikumpulkan sebagai kandidat.
-    2. Kandidat dengan nilai `priority` tertinggi dipilih.
-    3. Jika nilai `priority` sama, jadwal spesifik perangkat mengalahkan jadwal global; jika masih sama, jadwal dengan `updatedAt` paling baru dipilih.
-    4. Jika tidak ada kandidat yang cocok, perangkat memutar `fallbackPlaylist`.
-* **FR-04 (Pairing Perangkat 6 Digit):**
-  - Kiosk menghasilkan `deviceKey` (UUID v4 persisten) dan meminta kode 6 digit dari server.
-  - Kode berlaku selama 10 menit. Saat diklaim oleh Admin di CMS, server menerbitkan `deviceToken` acak 256-bit yang dikirim satu kali ke kiosk dan disimpan dalam bentuk *hash* `SHA-256` di tabel `devices`.
-* **FR-05 (Telemetri Heartbeat & Log Perangkat):**
-  - Kiosk mengirim *heartbeat* setiap 30 detik berisi `currentManifestHash`, `currentPlaylistId`, `currentMediaId`, `syncProgress` (`0-100`), `freeStorageMb`, dan `uptimeSeconds`.
-  - Kiosk juga mengirim log kejadian penting (`BOOT`, `SYNC_COMPLETE`, `PLAYBACK_ERROR`, `COMMAND_ACK`).
-* **FR-06 (Komando Jarak Jauh via SSE & Fallback Antrean):**
-  - Mendukung 4 komando: `SYNC_MANIFEST`, `RELOAD_PLAYER`, `CLEAR_CACHE`, dan `UNPAIR_DEVICE`.
-  - Jika kiosk sedang terhubung ke jalur SSE, komando diterima seketika. Jika koneksi SSE sedang terputus, komando disimpan pada kolom `devices.pending_command` dan dikirimkan pada respons *heartbeat* berikutnya.
+### B. Perangkat Otomatis: Layar TV Kiosk (Buka `/player`)
+Layar TV vertikal `1080x1920` yang bekerja secara otomatis tanpa perlu operator:
+* Saat pertama kali dinyalakan, menampilkan **Kode 6 Digit** besar di layar.
+* Begitu kode itu diklaim oleh Admin, Kiosk langsung men-download seluruh video ke memori lokalnya.
+* Memutar video secara berulang (*looping*) layar penuh tanpa kursor mouse dan tanpa jeda kedip hitam.
+* Memeriksa jam setiap detik untuk mengganti tayangan tepat waktu, **walaupun Wi-Fi sedang mati**.
+* Mengirim laporan kesehatan (*Heartbeat*) ke server setiap 30 detik.
 
 ---
 
-## 5. Kebutuhan Non-Fungsional (*Non-Functional Requirements*)
+## 3. Alur Penggunaan Utama (User Flows)
 
-* **NFR-01 (Ketahanan Offline Penuh):** Kiosk harus mampu beroperasi minimal 72 jam tanpa koneksi jaringan dan tahan terhadap siklus mati-nyala listrik (*cold boot*) dalam kondisi *offline*.
-* **NFR-02 (Transisi *Zero-Flicker*):** Perpindahan antar media wajib menggunakan teknik *double-buffering* sehingga waktu jeda visual berada di bawah `16ms` (tanpa kedipan hitam atau *loading spinner*).
-* **NFR-03 (Stabilitas Memori 24/7 & Watchdog):** Pemutar wajib membersihkan *decoder buffer* `<video>` setiap kali berganti item agar penggunaan RAM tidak bocor (*memory leak*). Jika video macet lebih dari 5 detik, *watchdog* wajib melompat ke item berikutnya secara otomatis.
-* **NFR-04 (Responsivitas Mobile pada Admin CMS):** Antarmuka `/admin/*` wajib nyaman dioperasikan melalui layar ponsel (`360px` s/d `430px` lebar layar) dengan ukuran area sentuh tombol minimal `44x44px` serta mendukung tampilan desktop penuh.
-* **NFR-05 (Penguncian Kanvas Kiosk 9:16):** Antarmuka `/player` wajib mengunci rasio `9:16` (`1080x1920`), menyembunyikan kursor *mouse*, serta menonaktifkan klik kanan, seleksi teks, dan *pinch-to-zoom*.
+1. **Alur Pemasangan TV Baru (Pairing 6 Digit):**
+   TV Kiosk baru dinyalakan -> muncul angka misalnya `482-910` di layar TV -> Admin berdiri di depan TV sambil membuka menu **Devices** di HP -> ketik `482910` dan beri nama `"TV Koridor Barat"` -> dalam 3 detik TV Kiosk otomatis mulai men-download video dan memutarnya.
+2. **Alur Upload & Susun Playlist:**
+   Admin upload 3 poster dan 2 video -> buat Playlist bernama `"Promo Pagi Driving Range"` -> masukkan media tadi, atur durasi gambar 10 detik, dan pilih transisi halus (*Crossfade*).
+3. **Alur Penjadwalan Jam Tayang (*Day-Parting*):**
+   Admin buat jadwal: pilih `"Promo Pagi"`, aktif Senin sampai Jumat, jam `06:00` sampai `11:59`, prioritas `10`. Lalu buat jadwal kedua untuk `"Promo Siang"`, jam `12:00` sampai `22:00`.
+4. **Alur Tetap Jalan Saat Offline:**
+   Tepat jam `12:00:00`, walaupun kabel LAN atau Wi-Fi gedung dicabut, layar Kiosk tetap otomatis berganti ke `"Promo Siang"` karena file videonya sudah ada di memori lokal TV.
 
 ---
 
-## 6. Batasan Ruang Lingkup (MVP vs. Di Luar Ruang Lingkup)
+## 4. Daftar Kebutuhan Fitur (Functional Requirements)
 
-| Masuk Ruang Lingkup (MVP Fase 1 - 4) | Di Luar Ruang Lingkup (Pengembangan Masa Depan) |
+* **FR-01 (Upload & Validasi Media):**
+  - Menerima gambar (`.jpg`, `.png`, `.webp` maksimal 25 MB) dan video (`.mp4`, `.webm` maksimal 250 MB).
+  - Server otomatis menghitung sidik jari `SHA-256` untuk setiap file agar Kiosk bisa memastikan hasil download-nya utuh dan tidak korup.
+  - Media yang sedang aktif dipakai di dalam playlist **tidak bisa dihapus** sampai dilepas dulu dari playlist terkait (supaya layar TV tidak error kehilangan file).
+* **FR-02 (Penyusun Playlist):**
+  - Mengatur urutan media, durasi tampil per item (minimal 3 detik), dan jenis transisi (`CUT` atau `CROSSFADE`).
+  - Urutan media bisa digeser naik-turun menggunakan tombol panah (mudah disentuh di layar HP) maupun drag-and-drop di laptop.
+* **FR-03 (Jadwal Tayang & Aturan Prioritas):**
+  - Jadwal bisa diarahkan ke **1 Kiosk tertentu** atau **Semua Kiosk sekaligus**.
+  - Berisi tanggal mulai/selesai, pilihan hari (Minggu s/d Sabtu), jam mulai/selesai (`HH:mm`), dan angka prioritas (`1 - 100`).
+  - **Aturan jika ada jadwal bertabrakan:** Jadwal dengan **angka prioritas paling tinggi** yang akan tayang. Kalau di jam tersebut tidak ada jadwal sama sekali, Kiosk otomatis memutar **Fallback Playlist (Playlist Cadangan)**.
+* **FR-04 (Pairing 6 Digit):**
+  - Kode 6 digit berlaku selama 10 menit. Setelah dipasangkan, Kiosk menyimpan token rahasia (`deviceToken`) di memorinya agar aman.
+* **FR-05 (Pemantauan Status Layar):**
+  - Kiosk melapor ke server setiap 30 detik.
+  - Status di dashboard: **ONLINE** (hijau, baru melapor `< 45` detik lalu), **STALE** (kuning, `45 - 120` detik belum melapor), **OFFLINE** (merah, `> 2` menit tidak ada kabar).
+* **FR-06 (Perintah Jarak Jauh):**
+  - Admin punya 4 tombol cepat untuk setiap Kiosk: **Sync Sekarang** (`SYNC_MANIFEST`), **Muat Ulang Layar** (`RELOAD_PLAYER`), **Bersihkan Cache** (`CLEAR_CACHE`), dan **Putuskan Sambungan** (`UNPAIR_DEVICE`).
+
+---
+
+## 5. Batasan Proyek (MVP Scope)
+
+Agar proyek PKL selesai tepat waktu dengan kualitas terbaik:
+
+| Wajib Selesai di Proyek Ini (MVP) | Ditunda Dulu / Tidak Perlu Dikerjakan |
 | :--- | :--- |
-| Autentikasi Admin & Operator (*single-organization*) | Sistem multi-perusahaan (*multi-tenant SaaS*) & integrasi pembayaran |
-| Penyimpanan lokal berbasis Docker Volume + abstraksi siap S3 | Transkoding resolusi/codec video otomatis di sisi server (FFmpeg worker) |
-| Kanvas pemutar `9:16` layar penuh (Video & Gambar) | Editor kanvas *multi-zone* (membagi layar menjadi *running text*, jam, cuaca) |
-| Penjadwalan *day-parting* dengan prioritas & *fallback playlist* | Perhitungan impresi iklan terprogram (*Programmatic Proof-of-Play*) |
-| Akses Admin via Desktop & HP + Pemutar PWA Chromium Kiosk | Pembuatan aplikasi native Android `.apk` atau Tizen/webOS Smart TV |
+| Login akun Admin dan Operator | Sistem langganan bayar bulanan / SaaS multi-perusahaan |
+| Simpan file video di folder lokal Docker | Fitur convert atau kompres resolusi video otomatis di server |
+| Tampilan iklan 1 layar penuh vertikal (`9:16`) | Membagi layar jadi banyak kotak kecil (running text, cuaca, kurs) |
+| Jadwal otomatis berdasarkan tanggal, hari, jam, dan prioritas | Laporan hitung biaya iklan per tayangan (*Proof-of-Play*) |
+| Web Admin (Laptop & HP) + Web Player TV (PWA Kiosk) | Membuat aplikasi Android native (`.apk`) untuk Play Store |

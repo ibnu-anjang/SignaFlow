@@ -1,43 +1,51 @@
-# SignaFlow: Platform Digital Signage 9:16 Offline-First
+# SignaFlow: Platform Digital Signage untuk Layar Kiosk Vertikal (9:16)
 
-SignaFlow adalah platform manajemen *Digital Signage* kelas produksi yang dirancang khusus untuk layar kiosk berdiri vertikal (**rasio 9:16, resolusi 1080x1920**) yang beroperasi **24/7** di area komersial publik seperti *driving range* golf, klinik kesehatan, lobi gedung, dan koridor pusat perbelanjaan.
+Selamat datang di proyek **SignaFlow**! 
 
-Sistem ini dibangun dengan prinsip **Offline-First Resilience**: layar kiosk tetap memutar konten video/gambar tanpa jeda dan tetap mengeksekusi pergantian jadwal berbasis waktu (*day-parting*) secara akurat meskipun jaringan Wi-Fi lokasi terputus total atau perangkat mengalami *cold reboot* saat *offline*.
+Aplikasi ini dibuat khusus untuk memutar video promosi dan poster di layar TV vertikal / *portrait* (**rasio 9:16, resolusi 1080x1920**) yang menyala **24 jam nonstop** di tempat umum, seperti *driving range* golf, klinik dokter, lobi hotel, dan koridor mal.
+
+Fitur paling spesial dari SignaFlow adalah **Tetap Nyala Walau Wi-Fi Mati (Offline-First)**:
+Kalau koneksi internet di lokasi tiba-tiba putus atau mati lampu, layar TV tidak akan menampilkan pesan error browser ("No Internet") atau muter-muter (*buffering*). Semua video dan jadwal jam tayang sudah otomatis disimpan di dalam memori TV, jadi iklan tetap jalan mulus dan tetap berganti tepat waktu (contoh: promo pagi otomatis ganti ke promo siang tepat jam 12:00).
 
 ---
 
-## Daftar Dokumen Engineering (Standar Senior Fullstack & Systems Architect)
+## Kamus Istilah Gaul (Glosarium untuk Junior)
 
-Seluruh dokumentasi arsitektur, produk, dan operasional disimpan di dalam direktori [`docs/`](./docs/) dan disusun mengikuti standar *software engineering* industri:
+Sebelum membaca dokumen lainnya, yuk pahami dulu istilah-istilah yang sering dipakai di proyek ini:
 
-| No | Dokumen | Deskripsi |
+* **Kiosk / Player (`/player`):** Halaman web layar penuh yang dibuka di TV untuk memutar video iklan tanpa henti. Tidak ada kursor mouse, tidak ada tombol browser, dan tidak bisa di-scroll.
+* **Admin CMS (`/admin`):** Halaman dashboard tempat kita mengunggah video, menyusun urutan video (*playlist*), dan mengatur jadwal tayang. Halaman ini bisa dibuka dari laptop kantor maupun **langsung dari HP sambil jalan**.
+* **Day-Parting (Bagi-Bagi Jam Tayang):** Mengatur tayangan berdasarkan jam atau hari. Misalnya: Jam 06:00 - 12:00 putar Promo Pagi, jam 12:00 - 22:00 putar Harga Normal, khusus Sabtu dan Minggu putar Promo Akhir Pekan.
+* **Manifest:** Paket data kecil berformat JSON dari server yang berisi "daftar belanjaan" untuk TV: jadwal apa saja yang sedang aktif dan daftar file video apa saja yang harus di-download oleh TV.
+* **Checksum SHA-256:** "Sidik jari unik" dari sebuah file video. Dipakai untuk memastikan video yang di-download TV benar-benar utuh 100% dan tidak rusak karena koneksi Wi-Fi yang jelek.
+* **Double-Buffering (Dua Lapis Pemutar):** Trik memutar video menggunakan 2 slot bertumpuk (Slot A dan Slot B). Pas Slot A sedang memutar Video 1, Slot B diam-diam menyiapkan Video 2 di belakang layar. Pas Video 1 selesai, Slot B langsung muncul seketika tanpa ada kedipan layar hitam.
+* **SSE (Server-Sent Events):** Jalur komunikasi kilat dari Server ke TV Kiosk. Begitu Admin klik tombol "Refresh Layar" di HP, TV Kiosk langsung merespons dalam hitungan detik.
+* **Watchdog (Penjaga Otomatis):** Satpam otomatis di dalam aplikasi Kiosk. Kalau ada video yang macet lebih dari 5 detik, Watchdog akan otomatis melompati video itu ke video berikutnya supaya TV tidak bengong seharian.
+
+---
+
+## Daftar Dokumen Lengkap (`docs/`)
+
+Seluruh dokumen teknis sudah dirapikan dengan bahasa yang santai, jelas, dan tetap berbobot profesional untuk bahan laporan PKL:
+
+| No | Dokumen | Penjelasan Singkat |
 | :- | :--- | :--- |
-| **01** | [**PRD (Product Requirements Document)**](./docs/01-PRD.md) | Pernyataan masalah, profil aktor (Admin Desktop/Mobile vs. Perangkat Kiosk), alur pengguna, kebutuhan fungsional/non-fungsional, dan batasan MVP. |
-| **02** | [**TRD & Arsitektur Sistem**](./docs/02-TRD-ARCHITECTURE.md) | Diagram arsitektur tingkat tinggi, *state machine* sinkronisasi *offline*, algoritma koreksi *clock drift*, *double-buffered player*, dan penguncian OS Kiosk. |
-| **03** | [**ADR (Architecture Decision Records)**](./docs/03-ADR.md) | Catatan keputusan arsitektur (ADR-001 s/d ADR-007) beserta alasan teknis, alternatif yang dipertimbangkan, dan konsekuensi (*trade-offs*). |
-| **04** | [**ERD & Spesifikasi Database**](./docs/04-DATABASE-ERD.md) | Diagram relasi entitas (ERD), skema DDL PostgreSQL lengkap, strategi *indexing*, aturan *foreign key*, dan kebijakan retensi log. |
-| **05** | [**Kontrak API & Protokol Realtime**](./docs/05-API-CONTRACT.md) | Daftar endpoint REST API, standar kode *error*, skema *event* SSE (*Server-Sent Events*), dan kontrak TypeScript (`contracts.ts`). |
-| **06** | [**Pembagian Tugas Tim & Peta Jalan**](./docs/06-TEAM-WORKFLOW-ROADMAP.md) | Pembagian kerja tim 2 *developer* bebas konflik Git, standar *branching* & *commit*, serta rencana eksekusi Fase 1 sampai Fase 4. |
-| **07** | [**Runbook Operasional & Deployment**](./docs/07-RUNBOOK-OPERATIONS.md) | Panduan *deployment* Docker, konfigurasi HTTPS Caddy untuk jaringan lokal & HP, instalasi Linux Kiosk fisik, *backup* database, dan *troubleshooting*. |
-| **08** | [**Rencana Pengujian (QA & UAT Plan)**](./docs/08-QA-TEST-PLAN.md) | Skenario uji ketahanan *offline*, uji pergantian jam tayang, uji *watchdog* file rusak, uji akses via HP, dan daftar cek kelayakan rilis. |
+| **01** | [**PRD (Kebutuhan Produk)**](./docs/01-PRD.md) | Masalah apa yang mau diselesaikan, siapa saja penggunanya, dan daftar fitur yang wajib kita buat sampai selesai. |
+| **02** | [**TRD & Arsitektur Sistem**](./docs/02-TRD-ARCHITECTURE.md) | Cara kerja sistem di balik layar: cara simpan video offline di browser, cara transisi tanpa kedip, dan cara menyamakan jam TV. |
+| **03** | [**ADR (Alasan Memilih Teknologi)**](./docs/03-ADR.md) | Jawaban kalau ditanya dosen/penguji: *"Kenapa pakai Next.js? Kenapa pakai SSE? Kenapa pakai Caddy?"* Lengkap dengan alasannya. |
+| **04** | [**ERD & Skema Database**](./docs/04-DATABASE-ERD.md) | Gambar susunan tabel database PostgreSQL dan skema Prisma yang sudah siap pakai. |
+| **05** | [**Kontrak API & Realtime**](./docs/05-API-CONTRACT.md) | Janjian bentuk data kirim dan terima antara Backend (Dev A) dan Frontend (Dev B) supaya langsung klop. |
+| **06** | [**Pembagian Tugas & Roadmap**](./docs/06-TEAM-WORKFLOW-ROADMAP.md) | Pembagian tugas antara **Dev A** dan **Dev B** supaya tidak bentrok di Git, lengkap dengan urutan pengerjaan Fase 1 sampai Fase 4. |
+| **07** | [**Panduan Menjalankan & Operasional**](./docs/07-RUNBOOK-OPERATIONS.md) | Cara menyalakan Docker, cara buka dari HP, cara setting PC Linux Kiosk, dan cara backup data. |
+| **08** | [**Skenario Pengujian (QA Plan)**](./docs/08-QA-TEST-PLAN.md) | Daftar skenario uji coba sebelum demo PKL (tes cabut Wi-Fi, tes pairing lewat HP, tes video macet). |
 
 ---
 
-## Tumpukan Teknologi (*Tech Stack*)
+## Teknologi yang Kita Gunakan
 
-* **Framework Aplikasi:** Next.js (App Router, TypeScript, mode `output: 'standalone'`) di atas Node.js 20 LTS.
-* **Database & ORM:** PostgreSQL 16 Alpine + Prisma ORM (dengan migrasi skema ketat).
-* **Penyimpanan Media:** *Persistent Docker Volume* lokal dengan lapisan abstraksi siap S3 (`StorageService`) + *Direct Byte-Range Streaming* melalui Caddy.
-* **Sinkronisasi Realtime:** *Server-Sent Events* (SSE) untuk komando instan (`< 200ms`) + *fallback polling heartbeat* pintar setiap 30 detik.
-* **Mesin Pemutar Kiosk (Offline-First):** *Service Worker* (App Shell Cache) + `IndexedDB` (Penyimpanan Manifest & Jadwal) + `Cache Storage API` (Penyimpanan Blob Video/Gambar terverifikasi `SHA-256`).
-* **Infrastruktur & Reverse Proxy:** Docker & Docker Compose (`linux/amd64`) + Caddy 2 untuk terminasi HTTPS otomatis (wajib agar *Service Worker* aktif di produksi dan perangkat HP).
-
----
-
-## Fitur Utama
-
-1. **Penjadwalan *Day-Parting* Berprioritas:** Pergantian promosi otomatis berdasarkan rentang tanggal, hari dalam seminggu (misal Senin-Jumat vs. Sabtu-Minggu), dan jam tayang (`HH:mm`), lengkap dengan sistem prioritas (`1-100`) dan *fallback playlist*.
-2. **Ketahanan *Offline* 100%:** Pemutaran berlanjut tanpa kedip dan pergantian jadwal tetap terjadi tepat waktu meskipun Wi-Fi mati berhari-hari.
-3. **Pemutar *Double-Buffered Zero-Flicker*:** Aset berikutnya (`N+1`) di-*decode* di lapisan DOM tersembunyi 3 detik sebelum aset saat ini (`N`) berakhir, menghasilkan transisi instan tanpa layar hitam atau *spinner loading*.
-4. **Pemasangan (*Pairing*) 6 Digit Cepat:** Pasangkan kiosk baru cukup dengan memasukkan 6 digit kode yang tampil di layar melalui laptop atau **langsung dari HP** di depan layar kiosk.
-5. **Pemantauan Armada & *Self-Healing Watchdog*:** *Dashboard* pemantauan status `ONLINE`/`STALE`/`OFFLINE`, progres sinkronisasi *cache*, serta pemulihan mandiri otomatis jika video macet.
+* **Aplikasi Utama:** Next.js (App Router, TypeScript) + Node.js 20.
+* **Database:** PostgreSQL 16 + Prisma ORM.
+* **Penyimpanan Video & Gambar:** Folder lokal di Docker yang langsung disajikan oleh Caddy (biar streaming video enteng dan cepat).
+* **Komunikasi Cepat:** Server-Sent Events (SSE) + laporan rutin (*Heartbeat*) setiap 30 detik.
+* **Penyimpanan Offline di TV:** Service Worker + IndexedDB (simpan jadwal) + Cache Storage API (simpan file video besar).
+* **Deploy & Server:** Docker Compose + Caddy Reverse Proxy (otomatis mengaktifkan HTTPS agar fitur offline browser diizinkan berjalan).

@@ -1,65 +1,81 @@
-# Panduan Kolaborasi Tim (Developer A & Developer B)
+# Panduan Ngoding Bareng (Dev A & Dev B)
 
-Selamat datang di repositori **SignaFlow**! Dokumen ini dibuat agar kita berdua bisa ngoding bareng secara paralel tanpa saling menimpa file (*merge conflict*).
+Halo! Dokumen ini dibuat agar kalian berdua bisa ngoding bareng dengan santai, percaya diri, dan bebas dari drama kode tabrakan (*Git merge conflict*).
 
 ---
 
-## 1. Setup Awal untuk Rekan Tim Baru
+## 1. Langkah Pertama Buat Teman Tim Baru
 
-Jalankan perintah berikut di terminal:
+Buka terminal di laptopmu, lalu ketik perintah berikut satu per satu:
 
 ```bash
-# 1. Clone repositori via SSH
+# 1. Download (clone) project dari GitHub
 git clone git@github.com:ibnu-anjang/SignaFlow.git
 cd SignaFlow
 
-# 2. Pindah ke branch integrasi utama (develop)
+# 2. Pindah ke branch develop (ini branch tempat kita kumpulin kerjaan harian)
 git checkout develop
 
-# 3. Salin konfigurasi environment lokal
+# 3. Salin file contoh konfigurasi
 cp .env.example .env
 ```
 
-> **Catatan Penting Pengguna Windows / WSL:** File [`.gitattributes`](./.gitattributes) sudah dikonfigurasi untuk memaksa akhir baris menggunakan `LF` agar tidak muncul konflik `CRLF` vs `LF` saat kolaborasi antara Windows dan Linux.
+> **Aman untuk Pengguna Windows & Linux:** Proyek ini sudah dilengkapi file [`.gitattributes`](./.gitattributes). Jadi walaupun yang satu pakai Windows dan yang satu pakai Linux, Git tidak akan rewel soal perbedaan format baris teks.
 
 ---
 
-## 2. Pembagian Wilayah Kerja (Anti-Conflict Boundary)
+## 2. Wilayah Folder Kita (Anti-Tabrakan)
 
-Agar kita tidak pernah mengedit file yang sama secara bersamaan, ikuti pembagian folder berikut:
+Prinsip nomor satu dalam kerja tim: **Jangan mengedit file yang sama di saat yang sama.** Kita sudah bagi tugas dan folder dengan rapi:
 
-| Peran | Wilayah Folder (Bebas Edit) |
-| :--- | :--- |
-| **Developer A (Backend, DB, SSE & Docker)** | `prisma/*`, `docker/*`, `Dockerfile`, `docker-compose.yml`, `src/server/*`, `src/app/api/v1/*`, `src/middleware.ts` |
-| **Developer B (UI Admin CMS & Kiosk Player 9:16)** | `src/app/(auth)/*`, `src/app/(admin)/*`, `src/app/(kiosk)/*`, `src/components/*`, `src/lib/kiosk/*`, `public/sw.js`, `public/manifest.json` |
-| **File Konstitusi Bersama** | `src/types/contracts.ts` (Jangan diubah sepihak tanpa diskusi berdua!) |
-
----
-
-## 3. Alur Kerja Git Harian
-
-1. **Jangan pernah push langsung ke `main` atau `develop` tanpa cek build.**
-2. Sebelum mulai mengerjakan fitur baru, selalu ambil perubahan terbaru dari `develop`:
-   ```bash
-   git checkout develop
-   git pull origin develop
-   ```
-3. Buat branch fitur sesuai peranmu:
-   - Untuk Dev A: `git checkout -b feat/dev-a-<nama-fitur>` (misal: `feat/dev-a-prisma-schema`)
-   - Untuk Dev B: `git checkout -b feat/dev-b-<nama-fitur>` (misal: `feat/dev-b-kiosk-viewport`)
-4. Commit menggunakan format *Conventional Commits*:
-   ```bash
-   git add .
-   git commit -m "feat(kiosk): implement 9:16 locked viewport shell"
-   git push -u origin feat/dev-b-kiosk-viewport
-   ```
-5. Buat **Pull Request (PR)** di GitHub menuju branch `develop`, lalu beritahu rekan tim untuk me-review dan *merge*.
+| Pengembang | Fokus Pekerjaan | Folder Milikmu (Bebas Edit) |
+| :--- | :--- | :--- |
+| **Developer A**<br>*(Backend & Database)* | Menyiapkan tabel database Prisma, bikin API, simpan file video, kirim sinyal SSE, dan mengatur Docker. | `prisma/*`<br>`docker/*`<br>`Dockerfile`<br>`docker-compose.yml`<br>`src/server/*`<br>`src/app/api/v1/*`<br>`src/middleware.ts` |
+| **Developer B**<br>*(Frontend CMS & Kiosk)* | Bikin tampilan web Admin (ramah Desktop & HP), layar pemutar TV 9:16, dan fitur simpan offline di browser Kiosk. | `src/app/(auth)/*`<br>`src/app/(admin)/*`<br>`src/app/(kiosk)/*`<br>`src/components/*`<br>`src/lib/kiosk/*`<br>`public/sw.js`<br>`public/manifest.json` |
+| **File Bersama** | Kamus data janjian antara Backend dan Frontend. | `src/types/contracts.ts`<br>*(Kalau butuh ubah tipe data di file ini, diskusikan dulu berdua)* |
 
 ---
 
-## 4. Bacaan Wajib Sebelum Ngoding
-* [**01-PRD.md**](./docs/01-PRD.md): Kebutuhan fitur produk & dukungan akses HP.
-* [**02-TRD-ARCHITECTURE.md**](./docs/02-TRD-ARCHITECTURE.md): Cara kerja *Offline-First*, *Double-Buffered Player*, dan *Watchdog*.
-* [**04-DATABASE-ERD.md**](./docs/04-DATABASE-ERD.md): Skema tabel PostgreSQL & Prisma.
-* [**05-API-CONTRACT.md**](./docs/05-API-CONTRACT.md): Daftar endpoint REST API & SSE.
-* [**06-TEAM-WORKFLOW-ROADMAP.md**](./docs/06-TEAM-WORKFLOW-ROADMAP.md): *Checklist* tugas per Fase (Fase 1 s/d Fase 4).
+## 3. Alur Kerja Git Harian (5 Langkah Simpel)
+
+Setiap mau mulai ngoding fitur baru, biasakan ikuti 5 langkah ini:
+
+### Langkah 1: Ambil update terbaru dari `develop`
+```bash
+git checkout develop
+git pull origin develop
+```
+
+### Langkah 2: Buat branch baru untuk fitur yang mau dikerjakan
+* Kalau kamu **Dev A**:
+  ```bash
+  git checkout -b feat/dev-a-setup-database
+  ```
+* Kalau kamu **Dev B**:
+  ```bash
+  git checkout -b feat/dev-b-halaman-login
+  ```
+
+### Langkah 3: Ngoding dan Simpan Perubahan (Commit)
+Setelah fitur selesai dan kamu tes jalan di laptopmu:
+```bash
+git add .
+git commit -m "feat: tambah halaman login admin"
+```
+
+### Langkah 4: Upload (Push) ke GitHub
+```bash
+git push -u origin nama-branch-kamu
+```
+
+### Langkah 5: Gabungkan (Merge) lewat Pull Request
+Buka halaman GitHub repositori, klik tombol **Compare & pull request**, pilih target ke branch **`develop`**, lalu minta temanmu untuk klik tombol **Merge**. Beres!
+
+---
+
+## 4. Tips Kalau Lagi Bingung
+
+* Baca [**README.md**](./README.md) untuk memahami istilah-istilah dasarnya.
+* Buka [**docs/06-TEAM-WORKFLOW-ROADMAP.md**](./docs/06-TEAM-WORKFLOW-ROADMAP.md) untuk melihat daftar checklist tugas kita dari Fase 1 sampai Fase 4.
+* **Untuk Dev A:** Buka [**docs/04-DATABASE-ERD.md**](./docs/04-DATABASE-ERD.md) dan [**docs/05-API-CONTRACT.md**](./docs/05-API-CONTRACT.md) untuk melihat bentuk database dan daftar URL API yang harus kamu buat.
+* **Untuk Dev B:** Buka [**docs/01-PRD.md**](./docs/01-PRD.md) dan [**docs/02-TRD-ARCHITECTURE.md**](./docs/02-TRD-ARCHITECTURE.md) untuk melihat fitur tampilan dan cara kerja pemutar video offline.

@@ -1,166 +1,119 @@
-# 02. Technical Requirements Document (TRD) & Arsitektur Sistem
+# 02. Technical Requirements Document (TRD) & Cara Kerja Sistem
 
-| Metadata Dokumen | Detail |
-| :--- | :--- |
-| **Sistem** | SignaFlow Digital Signage Platform |
-| **Target Deployment** | Docker Compose (`linux/amd64`) dengan Caddy HTTPS Reverse Proxy |
-| **Pola Arsitektur** | Modular Monolith (Next.js Standalone) + Offline-First Edge Player (PWA) |
+Dokumen ini menjelaskan **bagaimana cara kerja mesin SignaFlow di balik layar**. Disusun dengan bahasa yang mudah dipahami, sehingga saat mulai ngoding kita langsung paham alur datanya.
 
 ---
 
-## 1. Diagram Arsitektur Tingkat Tinggi
+## 1. Gambaran Besar Arsitektur Sistem
+
+Secara sederhana, sistem kita terdiri dari **3 wadah (container) Docker** di sisi Server yang melayani **Browser Admin** dan **Browser TV Kiosk**:
 
 ```mermaid
 flowchart TB
-    subgraph Docker_Host["Host Produksi Docker (linux/amd64)"]
+    subgraph Server_Docker["Server Produksi (Docker Compose)"]
         direction TB
-        Caddy["Caddy 2 Reverse Proxy\n(HTTPS Otomatis, HTTP/2, Byte-Range Media)"]
+        Caddy["1. Caddy Reverse Proxy\n(Pintu Gerbang HTTPS & Streaming File Video)"]
         
-        subgraph NextJS_App["Container Next.js Standalone (Node.js 20 Alpine)"]
-            AdminUI["Halaman Admin CMS\n(Responsive Desktop & HP)"]
-            RestAPI["REST API Controllers\n(/api/v1/*)"]
-            ManifestEngine["Manifest & Schedule Compiler\n(Deterministic SHA-256)"]
-            SSEBroker["In-Memory SSE Event Broker\n& Command Queue"]
-            StorageSvc["Storage Service Abstraction\n(LocalDisk / S3-Compatible)"]
+        subgraph NextJS_App["2. Aplikasi Next.js (Fullstack)"]
+            AdminUI["Web Admin CMS\n(/admin - Laptop & HP)"]
+            RestAPI["API Controller\n(/api/v1/*)"]
+            SSEBroker["Pengirim Sinyal Instan\n(SSE Stream)"]
         end
 
-        Postgres[("PostgreSQL 16 Alpine\n(Volume: signaflow_pgdata)")]
-        MediaVol[("Volume Media Persisten\n(Volume: signaflow_media)")]
+        Postgres[("3. Database PostgreSQL\n(Simpan Akun, Playlist, & Jadwal)")]
+        MediaFolder[("Folder Penyimpanan File Video\n(Volume: signaflow_media)")]
     end
 
-    subgraph Operator_Clients["Perangkat Admin / Operator"]
-        DesktopAdmin["Browser Laptop (16:9)"]
-        MobileAdmin["Browser HP (Operasional Lapangan)"]
+    subgraph Pengguna_Admin["Staf Admin / Operator"]
+        LaptopHP["Browser Laptop & HP"]
     end
 
-    subgraph Kiosk_Edge["Perangkat Layar Kiosk 9:16 (1080x1920 Portrait)"]
+    subgraph Layar_Kiosk["Layar TV Kiosk 9:16 (/player)"]
         direction TB
-        PlayerEngine["Double-Buffered Render Engine\n(React + 3-Tier Watchdog + Local Scheduler)"]
-        ServiceWorker["Service Worker (sw.js)\nApp Shell & Static Asset Interceptor"]
-        IndexedDB[("IndexedDB\nManifest, Jadwal, Clock Offset, Offline Logs")]
-        CacheStorage[("Cache Storage API\nBlob Media Terverifikasi SHA-256")]
+        PlayerUI["Pemutar Video 2 Lapis\n(Double-Buffered + Watchdog)"]
+        ServiceWorker["Service Worker (sw.js)\nPenjaga Saat Internet Mati"]
+        IndexedDB[("IndexedDB\nSimpan Jadwal di Browser")]
+        CacheAPI[("Cache Storage\nSimpan File Video di Browser")]
     end
 
-    DesktopAdmin <-->|"HTTPS (Cookie Sesi JWT)"| Caddy
-    MobileAdmin <-->|"HTTPS (Cookie Sesi JWT)"| Caddy
-    PlayerEngine <-->|"HTTPS (SSE Stream + Heartbeat 30d)"| Caddy
-    ServiceWorker <-->|"HTTPS (Fetch App Shell & Media)"| Caddy
+    LaptopHP <-->|"Buka Web via HTTPS"| Caddy
+    PlayerUI <-->|"Terima Sinyal & Kirim Laporan 30d"| Caddy
 
-    Caddy -->|"Reverse Proxy /* & /api/*\n(SSE flush_interval -1)"| NextJS_App
-    Caddy -->|"Static File Server /media/*\n(Read-Only Volume, Accept-Ranges)"| MediaVol
+    Caddy -->|"Arahkan Web & API"| NextJS_App
+    Caddy -->|"Kirim File Video Cepat (/media/*)"| MediaFolder
 
-    RestAPI <-->|"Prisma Client"| Postgres
-    RestAPI --> ManifestEngine
-    StorageSvc -->|"Tulis File & Hitung SHA-256 (RW)"| MediaVol
-    RestAPI -->|"Kirim Event / Perintah"| SSEBroker
-    SSEBroker -.->|"text/event-stream"| Caddy
+    RestAPI <-->|"Baca & Simpan Data"| Postgres
+    RestAPI -->|"Simpan File Upload"| MediaFolder
+    RestAPI -->|"Kirim Sinyal Perubahan"| SSEBroker
+    SSEBroker -.->|"Kirim Sinyal ke TV"| Caddy
 
-    PlayerEngine <--> ServiceWorker
-    PlayerEngine <--> IndexedDB
-    PlayerEngine <--> CacheStorage
+    PlayerUI <--> ServiceWorker
+    PlayerUI <--> IndexedDB
+    PlayerUI <--> CacheAPI
 ```
 
----
-
-## 2. Protokol Sinkronisasi *Offline-First* & Transisi Atomik
-
-### 2.1 Mengapa Transisi Atomik Wajib Diterapkan?
-Jika admin memperbarui jadwal dengan 5 video promosi baru dan koneksi Wi-Fi kiosk terputus saat baru selesai mengunduh 2 video, kiosk **tidak boleh** langsung memutar jadwal baru tersebut. Jika dipaksakan, 3 video sisanya akan gagal dimuat dan menyebabkan layar gelap.
-
-Oleh karena itu, SignaFlow menerapkan protokol **Atomic Manifest Cutover**:
-1. Saat *manifest* baru terdeteksi (`remoteManifestHash !== localManifestHash`), kiosk **tetap memutar *manifest* lama** yang sudah lengkap di lokal.
-2. Di latar belakang, *Sync Worker* membandingkan daftar `requiredAssets` pada *manifest* baru dengan isi `Cache Storage` (`signaflow-media-v1`).
-3. Hanya aset yang **belum ada** di `Cache Storage` yang diunduh (*delta sync*) satu per satu secara berurutan.
-4. Setiap aset yang diunduh diverifikasi ukuran *byte*-nya (`sizeBytes`) dan *hash* `SHA-256`-nya menggunakan `crypto.subtle.digest('SHA-256', arrayBuffer)`.
-5. Setelah **100%** aset dalam `requiredAssets` terverifikasi tersimpan di `Cache Storage`, barulah dokumen *manifest* baru disimpan ke `IndexedDB` sebagai *active manifest*, diikuti penghapusan aset lama yang sudah tidak direferensikan lagi (*orphan garbage collection*).
-
-### 2.2 Diagram State Machine Sinkronisasi Kiosk
-
-```mermaid
-stateDiagram-v2
-    [*] --> InisialisasiBoot
-    InisialisasiBoot --> CekTokenLokal: Baca localStorage & IndexedDB
-    CekTokenLokal --> LayarPairing6Digit: Token Tidak Ada
-    CekTokenLokal --> MuatManifestLokal: Token Tersedia
-
-    LayarPairing6Digit --> MuatManifestLokal: Klaim Kode Berhasil (Terima Token)
-
-    MuatManifestLokal --> PutarManifestAktif: Manifest & Blob Lokal Lengkap
-    MuatManifestLokal --> LayarSinkronisasiAwal: Cache Lokal Masih Kosong
-
-    PutarManifestAktif --> PeriksaPembaruan: Terima Event SSE / Respons Heartbeat 30d
-    PeriksaPembaruan --> PutarManifestAktif: Hash Sama (Tidak Ada Perubahan)
-    PeriksaPembaruan --> UnduhDeltaLatarBelakang: Hash Berbeda
-
-    state UnduhDeltaLatarBelakang {
-        [*] --> AmbilJSONManifest
-        AmbilJSONManifest --> HitungSelisihAset: Cek Cache Storage signaflow-media-v1
-        HitungSelisihAset --> UnduhSekuensial: Ambil file yang belum ada
-        UnduhSekuensial --> VerifikasiSHA256: Cek sizeBytes & digest SHA-256
-        VerifikasiSHA256 --> TundaBackoff: Gagal / Jaringan Putus
-        TundaBackoff --> UnduhSekuensial: Coba lagi (2d, 4d, 8d, maks 60d)
-        VerifikasiSHA256 --> SimpanKeCacheAPI: Lolos Verifikasi
-        SimpanKeCacheAPI --> KomitManifestIndexedDB: Semua Aset 100% Terverifikasi
-        KomitManifestIndexedDB --> BersihkanCacheYatim: Hapus blob yang tak lagi terpakai
-    }
-
-    UnduhDeltaLatarBelakang --> PutarManifestAktif: Cutover Atomik ke Manifest Baru
-    LayarSinkronisasiAwal --> UnduhDeltaLatarBelakang
-```
+> **Kenapa file video (`/media/*`) disajikan lewat Caddy, bukan lewat Node.js?**
+> Bayangkan kamu punya video 100 MB dan ada 10 TV yang mengunduh bersamaan. Kalau lewat Node.js, aplikasi kita bisa lemot karena sibuk memproses transfer file besar. Dengan bantuan **Caddy**, urusan kirim file video ditangani langsung oleh Caddy yang sangat cepat dan hemat memori, sementara Node.js tetap fokus melayani API dan logika database.
 
 ---
 
-## 3. Algoritma Mitigasi Pergeseran Jam (*Clock Drift Mitigation*)
+## 2. Rahasia TV Tetap Berputar Walau Internet Mati (*Offline-First*)
 
-Kiosk fisik yang beroperasi tanpa henti sering mengalami ketidakakuratan jam sistem (misalnya baterai CMOS lemah atau tidak mendapat akses ke server NTP internet publik). Agar pergantian jadwal *day-parting* (contoh: tepat pukul `12:00:00`) tetap akurat:
+Banyak orang heran: *"Kok bisa halaman web tetap memutar video dan ganti jadwal padahal kabel LAN atau Wi-Fi dicabut?"*
+Jawabannya adalah gabungan **3 teknologi resmi bawaan browser** di halaman `/player`:
 
-1. Setiap kali kiosk memanggil endpoint `/api/v1/device/manifest` atau `/api/v1/device/heartbeat`, kiosk mencatat waktu kirim monontonik `t0 = performance.now()` dan waktu penerimaannya `t1 = performance.now()`.
-2. Server selalu menyertakan `serverTimestampMs` (waktu UTC server dalam milidetik).
-3. Kiosk menghitung estimasi waktu server saat respons tiba:
-   $$\text{RTT} = t_1 - t_0$$
-   $$\text{EstimatedServerTime} = \text{serverTimestampMs} + \frac{\text{RTT}}{2}$$
-   $$\text{SampleOffset} = \text{EstimatedServerTime} - \text{Date.now()}$$
-4. Kiosk menyimpan 5 nilai `SampleOffset` terakhir dan mengambil **nilai median** sebagai `clockOffsetMs`, lalu menyimpannya ke `IndexedDB` agar tetap bertahan meskipun kiosk melakukan *reboot* dalam kondisi *offline*.
-5. Seluruh pengecekan jadwal di sisi kiosk menggunakan fungsi waktu terkoreksi:
-   ```typescript
-   export function getCorrectedNowMs(clockOffsetMs: number): number {
-     return Date.now() + clockOffsetMs;
-   }
-   ```
+1. **`Service Worker (public/sw.js)` untuk Menyimpan Halaman Web:**
+   Saat Kiosk pertama kali dibuka, Service Worker menyimpan seluruh kode tampilan web `/player` (HTML, CSS, JS) ke dalam memori komputer Kiosk. Jadi kalau TV mati lampu dan menyala kembali saat Wi-Fi masih mati, browser tidak akan menampilkan "No Internet", melainkan langsung membuka halaman `/player` dari memori lokal.
+2. **`Cache Storage API` untuk Menyimpan File Video Besar:**
+   Penyimpanan biasa (`localStorage`) cuma muat 5 MB (tidak muat untuk video). Nah, `Cache Storage` bawaan browser bisa menyimpan file video bergiga-giga byte langsung di dalam harddisk TV.
+3. **`IndexedDB` untuk Menyimpan Data Jadwal:**
+   Data jadwal tayang disimpan di database mini di dalam browser bernama `IndexedDB`. Setiap detik, Kiosk membaca jadwal dari sini tanpa perlu koneksi internet.
 
----
-
-## 4. Pipeline *Double-Buffered Rendering* (Transisi Tanpa Kedip)
-
-Pada *browser* standar, mengganti atribut `src` pada satu elemen `<video>` akan menyebabkan layar berkedip hitam selama `200ms - 800ms` sementara *decoder* membuka *stream* baru. Untuk mencapai **Zero-Flicker Transition (`< 16ms`)**, pemutar kiosk menggunakan arsitektur **Dua Lapisan DOM (Slot A dan Slot B)**:
-
-* **Kondisi Saat Ini:** Slot A sedang menampilkan item `index = 0` (`opacity: 1; z-index: 20`). Slot B berada di belakangnya (`opacity: 0; z-index: 10`).
-* **Tahap Pre-Decode (`T - 3 detik` sebelum item 0 selesai):**
-  - Pemutar mengambil *Blob* media untuk item `index = 1` dari `Cache Storage` dan membuat Object URL (`URL.createObjectURL(blob)`).
-  - Slot B memuat Object URL tersebut (`preload="auto"` untuk video atau `img.decode()` untuk gambar) dalam kondisi masih tersembunyi (`opacity: 0`).
-* **Tahap Cutover (`T = 0`):**
-  - Saat waktu tayang item `0` habis, pemutar memanggil `slotBVideo.play()` dan secara serentak menukar kelas CSS antara Slot A dan Slot B (dengan `transition: opacity 400ms ease` untuk `CROSSFADE`, atau `transition: none` untuk `CUT`).
-* **Tahap Pembersihan Memori (`T + 500ms`):**
-  - Setelah Slot A tersembunyi sepenuhnya, pemutar menghentikan video di Slot A, melepaskan *decoder buffer* GPU (`video.pause(); video.removeAttribute('src'); video.load();`), dan memanggil `URL.revokeObjectURL(oldBlobUrl)` agar penggunaan RAM tetap rata selama berbulan-bulan.
+### Aturan Emas: Download Sampai Tuntas Dulu, Baru Ganti Jadwal
+Bayangkan Admin menambahkan 3 video baru untuk jadwal siang. Di tengah proses download, Wi-Fi tiba-tiba putus saat video baru ter-download 2. Apa yang harus dilakukan TV Kiosk?
+* **Salah:** Langsung memutar jadwal baru (layar akan gelap pas memutar video ke-3 yang belum ada).
+* **Benar (Cara SignaFlow):** Kiosk **tetap memutar jadwal lama** yang videonya sudah lengkap di memori. Kiosk hanya akan beralih ke jadwal baru setelah **100% video baru selesai di-download dan lolos pengecekan SHA-256**. Begitu sudah 100%, barulah jadwal baru diputar dan video lama yang tidak terpakai dihapus dari memori.
 
 ---
 
-## 5. Strategi Penguncian Kiosk (*Kiosk Hardening*) & *3-Tier Watchdog*
+## 3. Cara Mengatasi Jam TV yang Ngaco (*Clock Drift Mitigation*)
 
-### 5.1 Penguncian Viewport & Gestur
-* **Resolusi Target:** `1080x1920` piksel (`aspect-ratio: 9 / 16`).
-* **Mode Pratinjau Otomatis (Laptop/HP):** Jika halaman `/player` dibuka pada layar yang bukan `1080x1920` (misalnya layar laptop *developer* `1920x1080` atau layar HP), kontainer pembungkus otomatis menghitung faktor skala CSS:
-  $$\text{scale} = \min\left(\frac{\text{window.innerWidth}}{1080}, \frac{\text{window.innerHeight}}{1920}\right)$$
-  sehingga kanvas `1080x1920` tetap tampil utuh dan presisi di tengah layar tanpa *scrollbar*.
-* **Pemblokiran Interaksi Liar:**
-  - `cursor: none !important` (menyembunyikan kursor *mouse*).
-  - Mematikan *event* `contextmenu` (klik kanan), `selectstart` (seleksi teks), `dragstart`, serta gestur *pinch-to-zoom* (`touchmove` dengan lebih dari 1 jari).
-  - Tombol rahasia untuk operator di lapangan: Mengetuk sudut kiri atas layar sebanyak **5 kali dalam 3 detik** akan membuka *Overlay Diagnostik Kiosk* (menampilkan status koneksi, IP, *hash manifest*, jumlah aset di *cache*, dan tombol *Force Sync* lokal).
+Masalah klasik di lapangan: Jam di PC TV sering meleset beberapa menit (misalnya karena baterai CMOS-nya lemah). Kalau jam di TV terlambat 10 menit, maka promo siang yang harusnya muncul jam 12:00 baru akan muncul jam 12:10.
 
-### 5.2 Arsitektur Pemulihan Mandiri (*3-Tier Watchdog*)
-1. **Tier 1 - Item Stall Watchdog (Deteksi Macet 5 Detik):**
-   *Loop* pengawas memeriksa setiap 1 detik apakah elemen `<video>` aktif mengalami kemacetan (`currentTime` tidak bergerak selama 5 detik padahal video tidak sedang di-*pause*). Jika terdeteksi macet atau *file* rusak (`onError`), pemutar otomatis melompati item tersebut ke item berikutnya dan mencatat log `PLAYBACK_ERROR`.
-2. **Tier 2 - React Error Boundary:**
-   Membungkus seluruh komponen `/player`. Jika terjadi *runtime exception* pada komponen React, *Error Boundary* menahan layar tetap berwarna hitam polos (tidak pernah membocorkan pesan *error* teknis ke pengunjung) dan memulihkan ulang *state* pemutar dalam 2 detik.
-3. **Tier 3 - Daily Soft-Reload Terjadwal (03:30 Pagi):**
-   Setiap pukul `03:30:00` dini hari waktu lokal, pemutar memeriksa apakah *Service Worker* aktif dan *cache* lengkap. Jika aman, pemutar memanggil `window.location.reload()` untuk membersihkan *heap* memori *browser* Chromium secara berkala.
+**Cara mengatasinya sangat mudah:**
+1. Setiap kali TV Kiosk melapor ke server (setiap 30 detik), server selalu menyertakan jam server saat itu (`serverTimestampMs`).
+2. TV Kiosk menghitung selisih jamnya:
+   `Selisih Jam = Jam Server - Jam Lokal TV`
+3. Angka selisih jam ini disimpan di `IndexedDB`.
+4. Saat mengecek jadwal tayang, TV Kiosk selalu menggunakan rumus:
+   **`Jam Sekarang = Jam Lokal TV + Selisih Jam`**
+   Hasilnya, seluruh TV di gedung akan berganti promo di detik yang sama persis!
+
+---
+
+## 4. Rahasia Transisi Video Tanpa Kedip Hitam (*Double-Buffered Player*)
+
+Kalau kita cuma memakai 1 tag `<video>` di HTML lalu mengganti sumber videonya (`video.src = "promo2.mp4"`), layar TV pasti akan berkedip hitam sebentar (sekitar 0,5 detik) saat browser memuat video kedua. Di layar iklan profesional, kedipan hitam ini sangat mengganggu.
+
+**Solusinya: Trik 2 Lapis Pemutar (Slot A dan Slot B):**
+1. Saat **Slot A** tampil di depan memutar Video 1, **Slot B** bersembunyi di belakangnya (`opacity: 0`).
+2. **3 detik sebelum Video 1 selesai**, Slot B diam-diam memuat Video 2 dari memori lokal dan bersiap di detik ke-0.
+3. Begitu waktu Video 1 habis, Slot B langsung dimunculkan (`opacity: 1`) dan Slot A disembunyikan (`opacity: 0`).
+4. Setelah Slot A bersembunyi, kita bersihkan memori video di Slot A agar RAM komputer tidak penuh, lalu giliran Slot A yang menyiapkan Video 3.
+
+---
+
+## 5. Satpam Pengaman Layar (*3-Tier Watchdog*)
+
+Agar TV Kiosk aman ditinggal berbulan-bulan tanpa pengawasan:
+
+1. **Layar Dikunci Rapi (`9:16`):**
+   - Kursor mouse dihilangkan dengan CSS `cursor: none`.
+   - Klik kanan, blok tulisan, dan zoom layar dimatikan lewat JavaScript.
+   - **Fitur Auto-Scale untuk Laptop:** Kalau halaman `/player` dibuka di laptop developer (layar melebar `16:9`), ukurannya otomatis diskalakan di tengah layar sehingga kita tetap bisa melihat bentuk vertikal `9:16` tanpa terpotong.
+2. **Watchdog (Satpam Otomatis 3 Lapis):**
+   - **Satpam 1 (Deteksi Video Macet 5 Detik):** Kalau ada video yang macet detiknya selama 5 detik, sistem otomatis melompati video tersebut ke video berikutnya.
+   - **Satpam 2 (Penangkap Error React):** Kalau terjadi error tak terduga, layar tetap hitam tenang (tidak menampilkan tulisan error kodingan di depan umum) lalu me-reset dirinya sendiri dalam 2 detik.
+   - **Satpam 3 (Segarkan Memori Jam 03:30 Pagi):** Setiap jam 03:30 subuh saat gedung sepi, browser melakukan refresh halus agar penggunaan RAM komputer tetap segar.
+3. **Menu Rahasia Operator:**
+   Ketuk sudut kiri atas layar TV sebanyak **5 kali berturut-turut** untuk memunculkan kotak info tersembunyi (berisi nama Kiosk, status Wi-Fi, persentase download, dan tombol reset).

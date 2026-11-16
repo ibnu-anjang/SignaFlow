@@ -1,95 +1,71 @@
-# 03. Architecture Decision Records (ADR)
+# 03. Architecture Decision Records (ADR) - Alasan Memilih Teknologi
 
-Dokumen ini mencatat keputusan arsitektur utama pada proyek **SignaFlow** beserta konteks masalah, alternatif yang dipertimbangkan, dan alasan pemilihannya. Catatan ini membantu tim *engineering* dan penguji memahami rasionalitas di balik setiap desain teknis.
-
----
-
-## ADR-001: Penggunaan Monolit Modular Next.js (`output: 'standalone'`) Dibandingkan Pemisahan Repo Frontend & Backend
-
-* **Status:** Disetujui
-* **Konteks:** Tim terdiri dari 2 *developer* PKL yang harus membangun *Admin CMS*, *Kiosk Player*, *REST API*, *SSE Broker*, dan *Database ORM* dalam waktu terbatas serta men-deploy keseluruhannya di dalam Docker.
-* **Alternatif yang Dipertimbangkan:**
-  1. Memisahkan repositori menjadi *Backend Express/NestJS* dan *Frontend React SPA* terpisah.
-  2. Menggunakan satu repositori **Next.js App Router (`output: 'standalone'`)** yang menyatukan UI dan Route Handlers (`/api/v1/*`) dengan batas folder yang tegas.
-* **Keputusan:** Memilih **Alternatif 2 (Next.js Modular Monolith dengan `output: 'standalone'`)**.
-* **Alasan & Konsekuensi:**
-  - Kontrak TypeScript (`src/types/contracts.ts`) dapat langsung dipakai bersama oleh *backend* maupun *frontend* tanpa risiko ketidakcocokan versi paket.
-  - Mode `output: 'standalone'` memangkas ukuran *image* Docker produksi secara drastis (hanya menyertakan file `node_modules` yang benar-benar terpakai saat produksi).
-  - Cukup mengelola 1 *container* aplikasi (`app`) di samping `db` dan `proxy`.
+Dokumen ini mencatat **kenapa kita memilih teknologi tertentu dan menolak teknologi lainnya**. Kalau nanti dosen pembimbing atau penguji PKL bertanya *"Kenapa kalian pakai teknologi X, bukan Y?"*, semua jawabannya ada di dokumen ini!
 
 ---
 
-## ADR-002: Penggunaan Server-Sent Events (SSE) + Polling Heartbeat 30 Detik Dibandingkan WebSockets
+## ADR-001: Menggabungkan Backend & Frontend di Next.js (Bukan Bikin 2 Proyek Terpisah)
 
-* **Status:** Disetujui
-* **Konteks:** Kiosk membutuhkan saluran komunikasi untuk menerima komando instan dari Admin (seperti `SYNC_MANIFEST` atau `RELOAD_PLAYER`) dan melaporkan status kesehatannya secara berkala.
-* **Alternatif yang Dipertimbangkan:**
-  1. Koneksi dua arah penuh menggunakan *WebSockets* (`Socket.io` atau `ws`).
-  2. Kombinasi **Server-Sent Events (SSE)** satu arah (Server ke Kiosk) menggunakan Web API standar `EventSource` + **HTTP POST Heartbeat** setiap 30 detik (Kiosk ke Server).
-* **Keputusan:** Memilih **Alternatif 2 (SSE + HTTP POST Heartbeat 30 detik)**.
-* **Alasan & Konsekuensi:**
-  - Komunikasi waktu nyata dari CMS ke Kiosk bersifat satu arah (server mendorong notifikasi ke kiosk), sedangkan kiosk hanya perlu melapor balik setiap 30 detik.
-  - `EventSource` (SSE) berjalan di atas HTTP/HTTPS standar, mendukung *auto-reconnect* bawaan *browser* secara otomatis saat Wi-Fi putus-nyambung, dan tidak memerlukan *custom WebSocket server* terpisah di luar *Route Handler* Next.js.
-  - Sebagai jaring pengaman ganda (*dual-safety net*), jika koneksi SSE terblokir oleh *firewall* lokal, respons dari `POST /api/v1/device/heartbeat` setiap 30 detik tetap membawa `latestManifestHash` dan `pendingCommand`.
+* **Keputusan:** Kita memakai **Next.js App Router (mode `output: 'standalone'`)** yang menyatukan Backend (API) dan Frontend di dalam satu repositori yang sama.
+* **Kenapa tidak bikin Backend Express/NestJS dan Frontend React terpisah?**
+  - **Terlalu ribet untuk tim 2 orang:** Kalau dipisah, kita harus mengelola 2 proyek, 2 `package.json`, 2 container Docker, dan harus sering menyalin file tipe data bolak-balik.
+  - **Satu Sumber Kebenaran:** Dengan Next.js, file tipe data bersama (`src/types/contracts.ts`) bisa langsung diimpor oleh Backend maupun Frontend tanpa takut beda versi.
+  - **Docker Lebih Ringkas:** Mode `output: 'standalone'` membuat ukuran image Docker jadi sangat kecil (cuma sekitar 150 MB) karena hanya menyertakan file yang benar-benar dipakai di produksi.
 
 ---
 
-## ADR-003: Penggunaan Cache Storage API + IndexedDB Dibandingkan localStorage untuk Penyimpanan Offline Kiosk
+## ADR-002: Memakai Server-Sent Events (SSE) + Heartbeat 30 Detik (Bukan WebSockets)
 
-* **Status:** Disetujui
-* **Konteks:** Kiosk harus menyimpan file video `.mp4` berukuran puluhan hingga ratusan megabyte serta jadwal tayang secara lokal di dalam *browser*.
-* **Alternatif yang Dipertimbangkan:**
-  1. Menyimpan data di `localStorage`.
-  2. Menyimpan metadata JSON di **`IndexedDB`** dan menyimpan *file* biner media (video/gambar) di **`Cache Storage API`** (`window.caches`), dikombinasikan dengan **`Service Worker`**.
-* **Keputusan:** Memilih **Alternatif 2 (`IndexedDB` + `Cache Storage API` + `Service Worker`)**.
-* **Alasan & Konsekuensi:**
-  - `localStorage` bersifat sinkron (memblokir *main thread*), hanya menerima string, dan dibatasi sekitar 5 MB.
-  - `Cache Storage API` dirancang oleh standar web khusus untuk menyimpan objek `Response` biner berukuran besar (hingga puluhan Gigabyte sesuai kuota *disk* yang diizinkan *flag* `--disk-cache-size` Chromium).
-  - `IndexedDB` memungkinkan penyimpanan struktur JSON *Device Manifest*, log *offline*, serta nilai koreksi jam (`clockOffsetMs`) secara asinkron dan aman lintas *reboot*.
+* **Keputusan:** Kita memakai **Server-Sent Events (SSE)** untuk mengirim perintah kilat dari Admin ke TV, ditambah laporan rutin (**Heartbeat via HTTP POST**) setiap 30 detik dari TV ke Server.
+* **Kenapa tidak pakai WebSockets?**
+  - **Kebutuhan kita cuma 1 arah:** Admin cuma butuh menembak sinyal ke TV ("Eh TV, jadwal baru sudah siap!"). TV tidak butuh sering-sering mengirim chat balik.
+  - **SSE Lebih Tahan Banting:** Fitur SSE bawaan browser (`EventSource`) otomatis mencoba menyambung ulang (*auto-reconnect*) kalau sinyal Wi-Fi putus-nyambung.
+  - **Jaring Pengaman Ganda:** Kalau koneksi SSE diblokir oleh Wi-Fi gedung, TV Kiosk tetap mengirim laporan *Heartbeat* setiap 30 detik lewat HTTP biasa. Dari balasan *Heartbeat* itu, TV tetap bisa tahu kalau ada jadwal baru.
 
 ---
 
-## ADR-004: Penyajian File Media Langsung Melalui Caddy Reverse Proxy (`Accept-Ranges: bytes`)
+## ADR-003: Memakai Cache Storage API + IndexedDB (Bukan localStorage)
 
-* **Status:** Disetujui
-* **Konteks:** File video yang diunggah admin disimpan di *persistent volume* lokal. Saat banyak kiosk mengunduh video secara bersamaan, server harus melayani transfer *file* berukuran besar.
-* **Alternatif yang Dipertimbangkan:**
-  1. Melayani file media melalui *Route Handler* Node.js/Next.js (`fs.createReadStream`).
-  2. Memasang *volume* `signaflow_media` ke *container* Next.js sebagai *Read-Write* (`/data/uploads:rw`) untuk proses unggah, dan memasang *volume* yang sama ke *container* **Caddy Reverse Proxy** sebagai *Read-Only* (`/srv/media:ro`) untuk disajikan langsung pada path `/media/*`.
-* **Keputusan:** Memilih **Alternatif 2 (Direct Media Serving via Caddy)**.
-* **Alasan & Konsekuensi:**
-  - Caddy (ditulis dalam bahasa Go) menangani *static file streaming*, kompresi, header `ETag`, dan `Accept-Ranges: bytes` (wajib untuk *video seeking/streaming* di Chromium) jauh lebih cepat dan hemat memori dibandingkan melewatkannya ke *event loop* Node.js.
-  - *Container* Next.js tetap fokus melayani transaksi API, kompilasi *manifest*, dan koneksi SSE.
-  - Abstraksi `StorageService` di sisi Next.js tetap memudahkan perpindahan ke *object storage* eksternal (AWS S3 / MinIO / Cloudflare R2) di masa depan hanya dengan mengubah variabel `publicUrl`.
+* **Keputusan:** Di dalam browser TV, file video/gambar disimpan di **Cache Storage API**, sedangkan data jadwal disimpan di **IndexedDB**.
+* **Kenapa tidak pakai `localStorage` saja?**
+  - **Ukuran `localStorage` terlalu kecil:** Maksimal cuma muat sekitar 5 MB dan hanya bisa menyimpan teks biasa. Satu file video saja ukurannya bisa 50 MB sampai 100 MB, jadi jelas tidak muat.
+  - **`Cache Storage` sanggup menampung bergiga-giga:** Standar web modern menyediakan `Cache Storage` khusus untuk menyimpan file biner besar (video/gambar) di harddisk komputer.
+  - **`IndexedDB` tidak bikin lemot:** Membaca data dari `IndexedDB` berjalan di latar belakang (asinkron) tanpa membuat animasi pemutar video tersendat.
 
 ---
 
-## ADR-005: Hashing Manifest Deterministik (`SHA-256`) & Cutover Atomik
+## ADR-004: Menyajikan File Video Langsung Lewat Caddy (Bukan Lewat Node.js)
 
-* **Status:** Disetujui
-* **Konteks:** Kiosk perlu mengetahui secara pasti kapan jadwal, urutan *playlist*, atau aset media berubah di server tanpa harus mengunduh ulang seluruh data setiap 30 detik.
-* **Keputusan:** Server mengompilasi struktur `DeviceManifestDTO` untuk setiap kiosk dan menghitung nilai `manifestHash` menggunakan algoritma `SHA-256` atas representasi kanonis dari jadwal, versi *playlist*, dan daftar aset.
-* **Alasan & Konsekuensi:**
-  - Pada setiap *heartbeat* 30 detik, kiosk cukup mengirimkan `currentManifestHash` (64 karakter). Server membandingkannya dengan `latestManifestHash` dan mengembalikan `syncRequired: true/false` dengan beban *bandwidth* kurang dari 200 *byte*.
-  - Kiosk hanya melakukan perpindahan (*cutover*) ke *manifest* baru setelah seluruh aset di dalam `requiredAssets` terbukti ada di `Cache Storage` dan cocok nilai `checksumSha256`-nya.
+* **Keputusan:** File video yang di-upload admin disimpan di folder Docker (`signaflow_media`). Saat TV ingin men-download video (`/media/*`), permintaan tersebut dilayani langsung oleh **Caddy Reverse Proxy**.
+* **Kenapa tidak lewat Node.js/Next.js?**
+  - **Node.js bisa kewalahan:** Kalau ada 10 sampai 20 layar TV yang mengunduh video promosi 150 MB secara bersamaan, RAM dan CPU Node.js bisa habis hanya untuk urusan transfer data.
+  - **Caddy sangat kencang:** Caddy dibuat dengan bahasa Go dan sangat ahli menangani pengiriman file video besar dengan fitur *byte-range streaming* (membuat video bisa diputar tanpa harus menunggu download selesai 100%).
 
 ---
 
-## ADR-006: Arsitektur Render Dua Lapis (*Double-Buffered DOM*) untuk Transisi Media
+## ADR-005: Pengecekan Sidik Jari File (SHA-256) Sebelum Memutar Video Baru
 
-* **Status:** Disetujui
-* **Konteks:** Mengganti `src` pada elemen `<video>` tunggal di HTML5 selalu menimbulkan jeda dekode yang terlihat sebagai layar berkedip hitam.
-* **Keputusan:** Membangun komponen pemutar dengan dua slot permanen (`Slot A` dan `Slot B`) yang bertumpuk secara absolut (`position: absolute; inset: 0`).
-* **Alasan & Konsekuensi:**
-  - Saat `Slot A` sedang memutar media ke-`N`, `Slot B` sudah memuat dan melakukan *pre-buffer* media ke-`N+1` pada waktu `3 detik` sebelum media ke-`N` selesai.
-  - Tepat saat waktu tayang habis, transisi dilakukan murni menggunakan properti CSS `opacity` yang diakselerasi GPU, menghasilkan perpindahan mulus `60fps` tanpa kedipan hitam.
+* **Keputusan:** TV Kiosk tidak boleh memutar video baru sebelum mencocokkan kode sidik jari (`SHA-256`) file hasil download dengan catatan dari server.
+* **Kenapa ini wajib?**
+  - Di lapangan, sinyal Wi-Fi sering putus saat proses download baru berjalan 80%.
+  - Kalau file yang baru ter-download 80% langsung diputar, pemutar video browser akan error dan layar TV jadi hitam.
+  - Dengan mencocokkan kode `SHA-256`, kita menjamin 100% bahwa video yang diputar benar-benar utuh dan sempurna.
 
 ---
 
-## ADR-007: Evaluasi Jadwal Lokal Menggunakan Koreksi Jam Server (*Rolling Median Clock Offset*)
+## ADR-006: Pemutar Video 2 Lapis (Slot A & Slot B) untuk Transisi Mulus
 
-* **Status:** Disetujui
-* **Konteks:** Pergantian jadwal (misal pukul `12:00:00`) harus dieksekusi secara mandiri oleh kiosk meskipun sedang *offline*, namun jam internal OS kiosk bisa meleset beberapa menit dari waktu sebenarnya.
-* **Keputusan:** Kiosk menghitung selisih jam lokal terhadap `serverTimestampMs` menggunakan kompensasi setengah *Round-Trip Time* ($\text{RTT}/2$), mengambil median dari 5 sampel terakhir, dan menyimpannya di `IndexedDB`.
-* **Alasan & Konsekuensi:**
-  - Menjamin seluruh layar kiosk di satu gedung berganti promosi pada detik yang serempak meskipun jam BIOS masing-masing mini-PC tidak sinkron.
+* **Keputusan:** Kita membuat pemutar dengan 2 slot video yang saling bertumpuk di layar.
+* **Kenapa tidak pakai 1 tag video saja?**
+  - Mengganti sumber video pada 1 tag `<video>` selalu menimbulkan jeda layar hitam sekitar 0,5 detik selagi browser memproses video baru.
+  - Dengan 2 slot, video berikutnya sudah kita siapkan diam-diam di belakang layar 3 detik sebelum video pertama habis. Pas waktunya tiba, tinggal tukar posisi. Layar dijamin mulus tanpa kedip hitam sama sekali!
+
+---
+
+## ADR-007: Rumus Koreksi Jam Server untuk TV Kiosk
+
+* **Keputusan:** TV Kiosk otomatis menghitung selisih jam lokalnya dengan jam server setiap kali menerima respons *Heartbeat*.
+* **Kenapa ini penting?**
+  - Jam komputer Kiosk sering ngaco (misalnya telat beberapa menit karena baterai CMOS habis).
+  - Kalau jam Kiosk telat 10 menit, maka promo siang yang harusnya tayang jam 12:00 baru akan muncul jam 12:10.
+  - Dengan menyimpan angka selisih jam (`clockOffsetMs`), Kiosk bisa tahu waktu server yang sebenarnya dan jadwal tayang selalu berganti tepat pada detiknya.

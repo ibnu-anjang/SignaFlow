@@ -1,0 +1,28 @@
+# Normalize line endings automatically across Linux, macOS, and Windows
+# Prevents CRLF vs LF merge conflicts when coding in a 2-person team
+* text=auto eol=lf
+
+# Force LF on shell scripts, Dockerfiles, and Caddyfile
+*.sh text eol=lf
+Dockerfile text eol=lf
+Caddyfile text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.prisma text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.mp4 binary
+*.webm binary
+*.woff binary
+*.woff2 binary

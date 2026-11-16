@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js build output
+.next/
+out/
+build/
+dist/
+
+# Environment variables (NEVER commit secrets)
+.env
+.env.*
+!.env.example
+
+# Local media uploads & persistent data volumes
+uploads/
+data/
+pgdata/
+media_data/
+caddy_data/
+caddy_config/
+
+# Certificates & keys
+*.pem
+*.key
+*.crt
+
+# Logs & debugging
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.log
+
+# Testing & coverage
+coverage/
+.nyc_output/
+
+# TypeScript & Cache
+*.tsbuildinfo
+next-env.d.ts
+.eslintcache
+
+# OS & IDE specific files
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo

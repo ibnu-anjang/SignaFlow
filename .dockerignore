@@ -1,0 +1,16 @@
+.git
+.gitignore
+.env
+.env.*
+node_modules
+.next
+out
+docs
+uploads
+media_data
+pgdata
+caddy_data
+caddy_config
+*.log
+README.md
+CONTRIBUTING.md

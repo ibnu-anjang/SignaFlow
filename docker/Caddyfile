@@ -1,0 +1,18 @@
+{
+	local_certs
+}
+
+https:// {
+	tls internal {
+		on_demand
+	}
+
+	handle_path /media/* {
+		root * /srv/media
+		file_server
+	}
+
+	reverse_proxy app:3000 {
+		flush_interval -1
+	}
+}
